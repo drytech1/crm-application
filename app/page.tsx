@@ -8,11 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Home, Users, Calendar, DollarSign, Mail, Settings, Search, Plus, Edit, Trash, X, ChevronRight, ArrowRight, ArrowUp, ArrowDown, Menu, Bell, Check, Clock, Play, Shield, Download, Send } from 'lucide-react'
-import { loadStripe } from '@stripe/stripe-js'
-import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
-
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
+import { Home, Users, Calendar, DollarSign, Mail, Settings, Search, Plus, Edit, Trash, X, ChevronRight, ArrowRight, ArrowUp, ArrowDown, Menu, Bell, Check, Clock, Play, Shield } from 'lucide-react'
 
 // Types
 interface Contact {
@@ -48,11 +44,17 @@ interface Project {
   dueDate: string
   charges: LineItem[]
   notes: string
-  paymentStatus?: string
-  paidAmount?: number
   invoiceNumber?: string
   invoiceDate?: string
   dueDate2?: string
+  paidAmount?: number
+  paymentStatus?: string
+  isRecurring?: boolean
+  recurringFrequency?: string
+  recurringStartDate?: string
+  recurringEndDate?: string
+  lastInvoiceDate?: string
+  nextInvoiceDate?: string
 }
 
 interface LineItem {
@@ -88,13 +90,17 @@ interface Automation {
   enabled: boolean
 }
 
-interface Payment {
+interface RecurringInvoice {
   id: string
   projectId: string
-  amount: number
-  status: string
-  paymentDate: string
-  paymentMethod: string
+  contactId: string
+  frequency: string
+  startDate: string
+  endDate: string
+  nextInvoiceDate: string
+  lastInvoiceDate?: string
+  isActive: boolean
+  invoiceCount: number
 }
 
 export default function CRMApplication() {
@@ -105,7 +111,7 @@ export default function CRMApplication() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [emails, setEmails] = useState<Email[]>([])
   const [automations, setAutomations] = useState<Automation[]>([])
-  const [payments, setPayments] = useState<Payment[]>([])
+  const [recurringInvoices, setRecurringInvoices] = useState<RecurringInvoice[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterState, setFilterState] = useState('all')
   const [filterCity, setFilterCity] = useState('all')
@@ -115,13 +121,15 @@ export default function CRMApplication() {
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [showTaskModal, setShowTaskModal] = useState(false)
   const [showAutomationModal, setShowAutomationModal] = useState(false)
-  const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [showRecurringModal, setShowRecurringModal] = useState(false)
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
-  const [selectedProjectForPayment, setSelectedProjectForPayment] = useState<Project | null>(null)
   const [selectedProjectForInvoice, setSelectedProjectForInvoice] = useState<Project | null>(null)
+  const [selectedProjectForPayment, setSelectedProjectForPayment] = useState<Project | null>(null)
+  const [selectedProjectForRecurring, setSelectedProjectForRecurring] = useState<Project | null>(null)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
@@ -132,6 +140,7 @@ export default function CRMApplication() {
   const projectStatuses = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled']
   const taskPriorities = ['Low', 'Medium', 'High', 'Urgent']
   const taskStatuses = ['To Do', 'In Progress', 'Completed']
+  const recurringFrequencies = ['Weekly', 'Bi-Weekly', 'Monthly', 'Quarterly', 'Annually']
 
   // Load data from localStorage
   useEffect(() => {
@@ -141,23 +150,15 @@ export default function CRMApplication() {
     const savedTasks = localStorage.getItem('crm_tasks')
     const savedEmails = localStorage.getItem('crm_emails')
     const savedAutomations = localStorage.getItem('crm_automations')
-    const savedPayments = localStorage.getItem('crm_payments')
+    const savedRecurringInvoices = localStorage.getItem('crm_recurring_invoices')
 
     if (savedContacts) setContacts(JSON.parse(savedContacts))
     if (savedDeals) setDeals(JSON.parse(savedDeals))
-    if (savedProjects) {
-      const loadedProjects = JSON.parse(savedProjects)
-      const migratedProjects = loadedProjects.map((p: Project) => ({
-        ...p,
-        paymentStatus: p.paymentStatus || 'Pending',
-        paidAmount: p.paidAmount || 0
-      }))
-      setProjects(migratedProjects)
-    }
+    if (savedProjects) setProjects(JSON.parse(savedProjects))
     if (savedTasks) setTasks(JSON.parse(savedTasks))
     if (savedEmails) setEmails(JSON.parse(savedEmails))
     if (savedAutomations) setAutomations(JSON.parse(savedAutomations))
-    if (savedPayments) setPayments(JSON.parse(savedPayments))
+    if (savedRecurringInvoices) setRecurringInvoices(JSON.parse(savedRecurringInvoices))
   }, [])
 
   // Save data to localStorage
@@ -186,8 +187,200 @@ export default function CRMApplication() {
   }, [automations])
 
   useEffect(() => {
-    localStorage.setItem('crm_payments', JSON.stringify(payments))
-  }, [payments])
+    localStorage.setItem('crm_recurring_invoices', JSON.stringify(recurringInvoices))
+  }, [recurringInvoices])
+
+  // Check for recurring invoices that need to be sent
+  useEffect(() => {
+    const checkRecurringInvoices = () => {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+
+      recurringInvoices.forEach(recurring => {
+        if (!recurring.isActive) return
+
+        const nextDate = new Date(recurring.nextInvoiceDate)
+        nextDate.setHours(0, 0, 0, 0)
+
+        if (nextDate <= today) {
+          // Time to send invoice
+          processRecurringInvoice(recurring)
+        }
+      })
+    }
+
+    // Check every hour
+    const interval = setInterval(checkRecurringInvoices, 60 * 60 * 1000)
+    
+    // Check on mount
+    checkRecurringInvoices()
+
+    return () => clearInterval(interval)
+  }, [recurringInvoices, projects, contacts])
+
+  // Process recurring invoice
+  const processRecurringInvoice = async (recurring: RecurringInvoice) => {
+    const project = projects.find(p => p.id === recurring.projectId)
+    const contact = project ? getContactById(project.contactId) : null
+
+    if (!project || !contact) return
+
+    const invoiceNumber = `INV-${Date.now()}`
+    const invoiceDate = new Date().toISOString().split('T')[0]
+    const dueDate = calculateDueDate(invoiceDate, 30)
+
+    // Update project with invoice info
+    updateProject(project.id, {
+      invoiceNumber,
+      invoiceDate,
+      dueDate2: dueDate
+    })
+
+    const total = calculateProjectTotal(project)
+    const paidAmount = project.paidAmount || 0
+    const remaining = total - paidAmount
+
+    // Prepare invoice data
+    const emailInvoiceData = {
+      invoiceNumber,
+      invoiceDate: new Date(invoiceDate).toLocaleDateString(),
+      dueDate: new Date(dueDate).toLocaleDateString(),
+      projectName: project.name,
+      clientName: contact.name,
+      clientEmail: contact.email,
+      clientPhone: contact.phone,
+      clientAddress: contact.address,
+      clientCity: contact.city,
+      clientState: contact.state,
+      clientZip: contact.zipCode,
+      lineItems: project.charges,
+      subtotal: total,
+      paidAmount: paidAmount,
+      amountDue: remaining
+    }
+
+    try {
+      // Send invoice via API
+      const response = await fetch('/api/send-invoice', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: contact.email,
+          subject: `Recurring Invoice ${invoiceNumber} - ${project.name}`,
+          body: `Your recurring invoice for ${project.name}.`,
+          invoiceData: emailInvoiceData
+        }),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        // Save email to history
+        const invoiceEmail = {
+          contactId: contact.id,
+          subject: `Recurring Invoice ${invoiceNumber} - ${project.name}`,
+          body: `Recurring invoice sent for ${project.name}. Amount due: $${remaining.toFixed(2)}`,
+        }
+        sendEmail(invoiceEmail)
+
+        // Update recurring invoice
+        const nextDate = calculateNextInvoiceDate(recurring.nextInvoiceDate, recurring.frequency)
+        updateRecurringInvoice(recurring.id, {
+          lastInvoiceDate: invoiceDate,
+          nextInvoiceDate: nextDate,
+          invoiceCount: recurring.invoiceCount + 1
+        })
+
+        console.log(`Recurring invoice sent successfully to ${contact.email}`)
+      }
+    } catch (error) {
+      console.error('Error sending recurring invoice:', error)
+    }
+  }
+
+  // Calculate next invoice date based on frequency
+  const calculateNextInvoiceDate = (currentDate: string, frequency: string): string => {
+    const date = new Date(currentDate)
+    
+    switch (frequency) {
+      case 'Weekly':
+        date.setDate(date.getDate() + 7)
+        break
+      case 'Bi-Weekly':
+        date.setDate(date.getDate() + 14)
+        break
+      case 'Monthly':
+        date.setMonth(date.getMonth() + 1)
+        break
+      case 'Quarterly':
+        date.setMonth(date.getMonth() + 3)
+        break
+      case 'Annually':
+        date.setFullYear(date.getFullYear() + 1)
+        break
+    }
+    
+    return date.toISOString().split('T')[0]
+  }
+
+  // Calculate due date
+  const calculateDueDate = (invoiceDate: string, daysUntilDue: number): string => {
+    const date = new Date(invoiceDate)
+    date.setDate(date.getDate() + daysUntilDue)
+    return date.toISOString().split('T')[0]
+  }
+
+  // Recurring Invoice Functions
+  const addRecurringInvoice = (recurring: Omit<RecurringInvoice, 'id' | 'invoiceCount' | 'isActive'>) => {
+    const newRecurring: RecurringInvoice = {
+      ...recurring,
+      id: Date.now().toString(),
+      invoiceCount: 0,
+      isActive: true
+    }
+    setRecurringInvoices([...recurringInvoices, newRecurring])
+    
+    // Update project to mark as recurring
+    updateProject(recurring.projectId, {
+      isRecurring: true,
+      recurringFrequency: recurring.frequency,
+      recurringStartDate: recurring.startDate,
+      recurringEndDate: recurring.endDate,
+      nextInvoiceDate: recurring.nextInvoiceDate
+    })
+    
+    setShowRecurringModal(false)
+    setSelectedProjectForRecurring(null)
+  }
+
+  const updateRecurringInvoice = (id: string, updates: Partial<RecurringInvoice>) => {
+    setRecurringInvoices(recurringInvoices.map(r => r.id === id ? { ...r, ...updates } : r))
+  }
+
+  const toggleRecurringInvoice = (id: string) => {
+    setRecurringInvoices(recurringInvoices.map(r => 
+      r.id === id ? { ...r, isActive: !r.isActive } : r
+    ))
+  }
+
+  const deleteRecurringInvoice = (id: string) => {
+    if (confirm('Are you sure you want to delete this recurring invoice?')) {
+      const recurring = recurringInvoices.find(r => r.id === id)
+      if (recurring) {
+        // Update project to remove recurring status
+        updateProject(recurring.projectId, {
+          isRecurring: false,
+          recurringFrequency: undefined,
+          recurringStartDate: undefined,
+          recurringEndDate: undefined,
+          nextInvoiceDate: undefined
+        })
+      }
+      setRecurringInvoices(recurringInvoices.filter(r => r.id !== id))
+    }
+  }
 
   // Contact Management Functions
   const addContact = (contact: Omit<Contact, 'id' | 'createdAt'>) => {
@@ -244,12 +437,10 @@ export default function CRMApplication() {
   }
 
   // Project Management Functions
-  const addProject = (project: Omit<Project, 'id' | 'paymentStatus' | 'paidAmount'>) => {
+  const addProject = (project: Omit<Project, 'id'>) => {
     const newProject: Project = {
       ...project,
-      id: Date.now().toString(),
-      paymentStatus: 'Pending',
-      paidAmount: 0
+      id: Date.now().toString()
     }
     setProjects([...projects, newProject])
     setShowProjectModal(false)
@@ -268,27 +459,6 @@ export default function CRMApplication() {
     }
   }
 
-  // Payment Functions
-  const addPayment = (payment: Omit<Payment, 'id'>) => {
-    const newPayment: Payment = {
-      ...payment,
-      id: Date.now().toString()
-    }
-    setPayments([...payments, newPayment])
-    
-    const project = projects.find(p => p.id === payment.projectId)
-    if (project) {
-      const currentPaidAmount = project.paidAmount || 0
-      const newPaidAmount = currentPaidAmount + payment.amount
-      const totalAmount = calculateProjectTotal(project)
-      const newStatus = newPaidAmount >= totalAmount ? 'Paid' : 'Partial'
-      updateProject(payment.projectId, {
-        paidAmount: newPaidAmount,
-        paymentStatus: newStatus
-      })
-    }
-  }
-
   // Email Functions
   const sendEmail = (email: Omit<Email, 'id' | 'sentAt'>) => {
     const newEmail: Email = {
@@ -298,6 +468,104 @@ export default function CRMApplication() {
     }
     setEmails([...emails, newEmail])
     setShowEmailModal(false)
+  }
+
+  // Invoice Functions
+  const sendInvoice = async (projectId: string, invoiceData: { invoiceNumber: string; invoiceDate: string; dueDate: string }) => {
+    const project = projects.find(p => p.id === projectId)
+    const contact = project ? getContactById(project.contactId) : null
+    
+    if (project && contact) {
+      updateProject(projectId, {
+        invoiceNumber: invoiceData.invoiceNumber,
+        invoiceDate: invoiceData.invoiceDate,
+        dueDate2: invoiceData.dueDate
+      })
+
+      const total = calculateProjectTotal(project)
+      const paidAmount = project.paidAmount || 0
+      const remaining = total - paidAmount
+
+      const emailInvoiceData = {
+        invoiceNumber: invoiceData.invoiceNumber,
+        invoiceDate: new Date(invoiceData.invoiceDate).toLocaleDateString(),
+        dueDate: new Date(invoiceData.dueDate).toLocaleDateString(),
+        projectName: project.name,
+        clientName: contact.name,
+        clientEmail: contact.email,
+        clientPhone: contact.phone,
+        clientAddress: contact.address,
+        clientCity: contact.city,
+        clientState: contact.state,
+        clientZip: contact.zipCode,
+        lineItems: project.charges,
+        subtotal: total,
+        paidAmount: paidAmount,
+        amountDue: remaining
+      }
+
+      try {
+        const response = await fetch('/api/send-invoice', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            to: contact.email,
+            subject: `Invoice ${invoiceData.invoiceNumber} - ${project.name}`,
+            body: `Please find your invoice for ${project.name}.`,
+            invoiceData: emailInvoiceData
+          }),
+        })
+
+        const result = await response.json()
+
+        if (result.success) {
+          const invoiceEmail = {
+            contactId: contact.id,
+            subject: `Invoice ${invoiceData.invoiceNumber} - ${project.name}`,
+            body: `Invoice sent for ${project.name}. Amount due: $${remaining.toFixed(2)}`,
+          }
+          sendEmail(invoiceEmail)
+          
+          alert('Invoice sent successfully to ' + contact.email + '!')
+        } else {
+          alert('Failed to send invoice. Please try again.')
+        }
+      } catch (error) {
+        console.error('Error sending invoice:', error)
+        alert('Failed to send invoice. Please check your email configuration.')
+      }
+
+      setShowInvoiceModal(false)
+      setSelectedProjectForInvoice(null)
+    }
+  }
+
+  // Payment Functions
+  const processPayment = (projectId: string, paymentAmount: number) => {
+    const project = projects.find(p => p.id === projectId)
+    if (project) {
+      const currentPaid = project.paidAmount || 0
+      const newPaidAmount = currentPaid + paymentAmount
+      const total = calculateProjectTotal(project)
+      
+      let paymentStatus = 'Pending'
+      if (newPaidAmount >= total) {
+        paymentStatus = 'Paid'
+      } else if (newPaidAmount > 0) {
+        paymentStatus = 'Partial'
+      }
+
+      updateProject(projectId, {
+        paidAmount: newPaidAmount,
+        paymentStatus
+      })
+
+      setShowPaymentModal(false)
+      setSelectedProjectForPayment(null)
+      alert(`Payment of $${paymentAmount.toFixed(2)} processed successfully!`)
+    }
   }
 
   // Task Functions
@@ -328,89 +596,6 @@ export default function CRMApplication() {
     setAutomations(automations.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a))
   }
 
-  // Invoice Functions
-  const generateInvoiceNumber = () => {
-    const date = new Date()
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
-    return `INV-${year}${month}-${random}`
-  }
-
-  const sendInvoice = async (projectId: string, invoiceData: { invoiceNumber: string; invoiceDate: string; dueDate: string }) => {
-  const project = projects.find(p => p.id === projectId)
-  const contact = project ? getContactById(project.contactId) : null
-  
-  if (project && contact) {
-    updateProject(projectId, {
-      invoiceNumber: invoiceData.invoiceNumber,
-      invoiceDate: invoiceData.invoiceDate,
-      dueDate2: invoiceData.dueDate
-    })
-
-    const total = calculateProjectTotal(project)
-    const paidAmount = project.paidAmount || 0
-    const remaining = total - paidAmount
-
-    // Prepare invoice data for email
-    const emailInvoiceData = {
-      invoiceNumber: invoiceData.invoiceNumber,
-      invoiceDate: new Date(invoiceData.invoiceDate).toLocaleDateString(),
-      dueDate: new Date(invoiceData.dueDate).toLocaleDateString(),
-      projectName: project.name,
-      clientName: contact.name,
-      clientEmail: contact.email,
-      clientPhone: contact.phone,
-      clientAddress: contact.address,
-      clientCity: contact.city,
-      clientState: contact.state,
-      clientZip: contact.zipCode,
-      lineItems: project.charges,
-      subtotal: total,
-      paidAmount: paidAmount,
-      amountDue: remaining
-    }
-
-    try {
-      // Send invoice via API
-      const response = await fetch('/api/send-invoice', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          to: contact.email,
-          subject: `Invoice ${invoiceData.invoiceNumber} - ${project.name}`,
-          body: `Please find your invoice for ${project.name}.`,
-          invoiceData: emailInvoiceData
-        }),
-      })
-
-      const result = await response.json()
-
-      if (result.success) {
-        // Save email to history
-        const invoiceEmail = {
-          contactId: contact.id,
-          subject: `Invoice ${invoiceData.invoiceNumber} - ${project.name}`,
-          body: `Invoice sent for ${project.name}. Amount due: $${remaining.toFixed(2)}`,
-        }
-        sendEmail(invoiceEmail)
-        
-        alert('Invoice sent successfully to ' + contact.email + '!')
-      } else {
-        alert('Failed to send invoice. Please try again.')
-      }
-    } catch (error) {
-      console.error('Error sending invoice:', error)
-      alert('Failed to send invoice. Please check your email configuration.')
-    }
-
-    setShowInvoiceModal(false)
-    setSelectedProjectForInvoice(null)
-  }
-}
-
   // Filter and Search
   const filteredContacts = contacts.filter(contact => {
     const matchesSearch = contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -428,8 +613,6 @@ export default function CRMApplication() {
 
   const getEmailsByContact = (contactId: string) => emails.filter(e => e.contactId === contactId)
 
-  const getPaymentsByProject = (projectId: string) => payments.filter(p => p.projectId === projectId)
-
   const calculateProjectTotal = (project: Project) => {
     return project.charges.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
   }
@@ -446,7 +629,6 @@ export default function CRMApplication() {
   const lostDeals = deals.filter(d => d.stage === 'Closed Lost')
   const winRate = deals.length > 0 ? (wonDeals.length / (wonDeals.length + lostDeals.length) * 100) : 0
   const averageDealSize = wonDeals.length > 0 ? wonDeals.reduce((sum, d) => sum + d.value, 0) / wonDeals.length : 0
-  const totalRevenue = payments.reduce((sum, payment) => sum + payment.amount, 0)
 
   const getDealsByStage = (stage: string) => deals.filter(d => d.stage === stage)
 
@@ -517,12 +699,12 @@ export default function CRMApplication() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-            <ArrowUp className="h-4 w-4 text-orange-600" />
+            <CardTitle className="text-sm font-medium">Recurring Invoices</CardTitle>
+            <Clock className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${totalRevenue.toLocaleString()}</div>
-            <p className="text-xs text-gray-500 mt-1">Payments received</p>
+            <div className="text-2xl font-bold">{recurringInvoices.filter(r => r.isActive).length}</div>
+            <p className="text-xs text-gray-500 mt-1">Active subscriptions</p>
           </CardContent>
         </Card>
       </div>
@@ -560,35 +742,31 @@ export default function CRMApplication() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Upcoming Tasks</CardTitle>
-            <CardDescription>Tasks due soon</CardDescription>
+            <CardTitle>Upcoming Recurring Invoices</CardTitle>
+            <CardDescription>Next scheduled invoices</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {tasks.filter(t => t.status !== 'Completed').slice(0, 5).map(task => (
-                <div key={task.id} className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <input
-                      type="checkbox"
-                      checked={task.status === 'Completed'}
-                      onChange={() => toggleTaskStatus(task.id)}
-                      className="h-4 w-4"
-                    />
-                    <div>
-                      <p className="font-medium">{task.name}</p>
-                      <p className="text-sm text-gray-500">Due: {new Date(task.dueDate).toLocaleDateString()}</p>
+              {recurringInvoices
+                .filter(r => r.isActive)
+                .sort((a, b) => new Date(a.nextInvoiceDate).getTime() - new Date(b.nextInvoiceDate).getTime())
+                .slice(0, 5)
+                .map(recurring => {
+                  const project = projects.find(p => p.id === recurring.projectId)
+                  const contact = project ? getContactById(project.contactId) : null
+                  return (
+                    <div key={recurring.id} className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{project?.name}</p>
+                        <p className="text-sm text-gray-500">{contact?.name}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-medium">{new Date(recurring.nextInvoiceDate).toLocaleDateString()}</p>
+                        <p className="text-xs text-gray-500">{recurring.frequency}</p>
+                      </div>
                     </div>
-                  </div>
-                  <span className={`px-2 py-1 text-xs rounded ${
-                    task.priority === 'Urgent' ? 'bg-red-100 text-red-700' :
-                    task.priority === 'High' ? 'bg-orange-100 text-orange-700' :
-                    task.priority === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-gray-100 text-gray-700'
-                  }`}>
-                    {task.priority}
-                  </span>
-                </div>
-              ))}
+                  )
+                })}
             </div>
           </CardContent>
         </Card>
@@ -822,8 +1000,6 @@ export default function CRMApplication() {
           const total = calculateProjectTotal(project)
           const paidAmount = project.paidAmount || 0
           const remaining = total - paidAmount
-          const paymentStatus = project.paymentStatus || 'Pending'
-          
           return (
             <Card key={project.id}>
               <CardHeader>
@@ -832,15 +1008,23 @@ export default function CRMApplication() {
                     <CardTitle className="text-lg">{project.name}</CardTitle>
                     <CardDescription>{contact?.name}</CardDescription>
                   </div>
-                  <span className={`px-2 py-1 text-xs rounded ${
-                    project.status === 'Completed' ? 'bg-green-100 text-green-700' :
-                    project.status === 'In Progress' ? 'bg-blue-100 text-blue-700' :
-                    project.status === 'On Hold' ? 'bg-yellow-100 text-yellow-700' :
-                    project.status === 'Cancelled' ? 'bg-red-100 text-red-700' :
-                    'bg-gray-100 text-gray-700'
-                  }`}>
-                    {project.status}
-                  </span>
+                  <div className="flex flex-col gap-1">
+                    <span className={`px-2 py-1 text-xs rounded ${
+                      project.status === 'Completed' ? 'bg-green-100 text-green-700' :
+                      project.status === 'In Progress' ? 'bg-blue-100 text-blue-700' :
+                      project.status === 'On Hold' ? 'bg-yellow-100 text-yellow-700' :
+                      project.status === 'Cancelled' ? 'bg-red-100 text-red-700' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {project.status}
+                    </span>
+                    {project.isRecurring && (
+                      <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700 flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        Recurring
+                      </span>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -853,35 +1037,45 @@ export default function CRMApplication() {
                     <span className="text-gray-600">Due Date:</span>
                     <span>{new Date(project.dueDate).toLocaleDateString()}</span>
                   </div>
-                  {project.invoiceNumber && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Invoice #:</span>
-                      <span className="font-medium">{project.invoiceNumber}</span>
-                    </div>
+                  {project.isRecurring && (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Frequency:</span>
+                        <span>{project.recurringFrequency}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Next Invoice:</span>
+                        <span>{project.nextInvoiceDate ? new Date(project.nextInvoiceDate).toLocaleDateString() : 'N/A'}</span>
+                      </div>
+                    </>
                   )}
                   <div className="flex justify-between text-sm font-bold pt-2 border-t">
-                    <span>Total Charges:</span>
+                    <span>Total:</span>
                     <span className="text-green-600">${total.toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Paid:</span>
-                    <span>${paidAmount.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-bold">
-                    <span>Remaining:</span>
-                    <span className={remaining > 0 ? 'text-red-600' : 'text-green-600'}>
-                      ${remaining.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="pt-2">
-                    <span className={`px-2 py-1 text-xs rounded ${
-                      paymentStatus === 'Paid' ? 'bg-green-100 text-green-700' :
-                      paymentStatus === 'Partial' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {paymentStatus}
-                    </span>
-                  </div>
+                  {paidAmount > 0 && (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Paid:</span>
+                        <span className="text-green-600">${paidAmount.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm font-bold">
+                        <span>Remaining:</span>
+                        <span className="text-orange-600">${remaining.toLocaleString()}</span>
+                      </div>
+                    </>
+                  )}
+                  {project.paymentStatus && (
+                    <div className="flex justify-center pt-2">
+                      <span className={`px-3 py-1 text-xs rounded-full ${
+                        project.paymentStatus === 'Paid' ? 'bg-green-100 text-green-700' :
+                        project.paymentStatus === 'Partial' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {project.paymentStatus}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex gap-2 pt-2">
                     <Button variant="outline" size="sm" className="flex-1" onClick={() => {
                       setEditingProject(project)
@@ -890,26 +1084,24 @@ export default function CRMApplication() {
                       <Edit className="h-3 w-3 mr-1" />
                       Edit
                     </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => {
-                        setSelectedProjectForInvoice(project)
-                        setShowInvoiceModal(true)
-                      }}
-                    >
-                      <Send className="h-3 w-3 mr-1" />
-                      Invoice
+                    <Button variant="outline" size="sm" onClick={() => {
+                      setSelectedProjectForInvoice(project)
+                      setShowInvoiceModal(true)
+                    }}>
+                      <Mail className="h-3 w-3" />
                     </Button>
-                  </div>
-                  <div className="flex gap-2">
-                    {remaining > 0 && (
-                      <Button size="sm" className="flex-1" onClick={() => {
-                        setSelectedProjectForPayment(project)
-                        setShowPaymentModal(true)
+                    <Button variant="outline" size="sm" onClick={() => {
+                      setSelectedProjectForPayment(project)
+                      setShowPaymentModal(true)
+                    }}>
+                      <DollarSign className="h-3 w-3" />
+                    </Button>
+                    {!project.isRecurring && (
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setSelectedProjectForRecurring(project)
+                        setShowRecurringModal(true)
                       }}>
-                        <DollarSign className="h-3 w-3 mr-1" />
-                        Pay
+                        <Clock className="h-3 w-3" />
                       </Button>
                     )}
                     <Button variant="outline" size="sm" onClick={() => deleteProject(project.id)}>
@@ -925,6 +1117,152 @@ export default function CRMApplication() {
     </div>
   )
 
+  const renderRecurringBilling = () => (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Recurring Billing</h1>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Active Subscriptions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{recurringInvoices.filter(r => r.isActive).length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Total Invoices Sent</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{recurringInvoices.reduce((sum, r) => sum + r.invoiceCount, 0)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Monthly Recurring Revenue</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              ${recurringInvoices
+                .filter(r => r.isActive && r.frequency === 'Monthly')
+                .reduce((sum, r) => {
+                  const project = projects.find(p => p.id === r.projectId)
+                  return sum + (project ? calculateProjectTotal(project) : 0)
+                }, 0)
+                .toLocaleString()}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>All Recurring Invoices</CardTitle>
+          <CardDescription>Manage your subscription billing</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {recurringInvoices.map(recurring => {
+              const project = projects.find(p => p.id === recurring.projectId)
+              const contact = project ? getContactById(project.contactId) : null
+              const total = project ? calculateProjectTotal(project) : 0
+              
+              return (
+                <div key={recurring.id} className="p-4 border rounded-lg">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-medium text-lg">{project?.name}</h4>
+                        <span className={`px-2 py-1 text-xs rounded ${
+                          recurring.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {recurring.isActive ? 'Active' : 'Paused'}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600">{contact?.name} • {contact?.email}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-green-600">${total.toLocaleString()}</p>
+                      <p className="text-sm text-gray-500">{recurring.frequency}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3 text-sm">
+                    <div>
+                      <p className="text-gray-600">Start Date</p>
+                      <p className="font-medium">{new Date(recurring.startDate).toLocaleDateString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">End Date</p>
+                      <p className="font-medium">{new Date(recurring.endDate).toLocaleDateString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Next Invoice</p>
+                      <p className="font-medium">{new Date(recurring.nextInvoiceDate).toLocaleDateString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Invoices Sent</p>
+                      <p className="font-medium">{recurring.invoiceCount}</p>
+                    </div>
+                  </div>
+
+                  {recurring.lastInvoiceDate && (
+                    <div className="text-sm text-gray-600 mb-3">
+                      Last invoice sent: {new Date(recurring.lastInvoiceDate).toLocaleDateString()}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => toggleRecurringInvoice(recurring.id)}
+                    >
+                      {recurring.isActive ? 'Pause' : 'Resume'}
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const project = projects.find(p => p.id === recurring.projectId)
+                        if (project) {
+                          setSelectedProjectForInvoice(project)
+                          setShowInvoiceModal(true)
+                        }
+                      }}
+                    >
+                      <Mail className="h-3 w-3 mr-1" />
+                      Send Now
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => deleteRecurringInvoice(recurring.id)}
+                    >
+                      <Trash className="h-3 w-3 text-red-600 mr-1" />
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+            
+            {recurringInvoices.length === 0 && (
+              <div className="text-center py-12 text-gray-500">
+                <Clock className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium mb-2">No recurring invoices yet</p>
+                <p className="text-sm">Set up recurring billing from the Projects section</p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+
   const renderAnalytics = () => (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Analytics</h1>
@@ -935,10 +1273,10 @@ export default function CRMApplication() {
             <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${totalRevenue.toLocaleString()}</div>
+            <div className="text-2xl font-bold">${wonDeals.reduce((sum, d) => sum + d.value, 0).toLocaleString()}</div>
             <p className="text-xs text-green-600 mt-1 flex items-center">
               <ArrowUp className="h-3 w-3 mr-1" />
-              {payments.length} payments
+              {wonDeals.length} deals won
             </p>
           </CardContent>
         </Card>
@@ -1040,23 +1378,30 @@ export default function CRMApplication() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent Payments</CardTitle>
+            <CardTitle>Project Status Distribution</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {payments.slice(0, 5).map(payment => {
-                const project = projects.find(p => p.id === payment.projectId)
-                const contact = project ? getContactById(project.contactId) : null
+              {projectStatuses.map(status => {
+                const count = projects.filter(p => p.status === status).length
+                const percentage = projects.length > 0 ? (count / projects.length) * 100 : 0
                 return (
-                  <div key={payment.id} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="font-medium">{project?.name}</p>
-                      <p className="text-sm text-gray-500">{contact?.name}</p>
-                      <p className="text-xs text-gray-400">{new Date(payment.paymentDate).toLocaleDateString()}</p>
+                  <div key={status}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium">{status}</span>
+                      <span className="text-sm text-gray-600">{count} projects</span>
                     </div>
-                    <div className="text-right">
-                      <p className="font-bold text-green-600">${payment.amount.toLocaleString()}</p>
-                      <p className="text-xs text-gray-500">{payment.paymentMethod}</p>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full ${
+                          status === 'Completed' ? 'bg-green-600' :
+                          status === 'In Progress' ? 'bg-blue-600' :
+                          status === 'On Hold' ? 'bg-yellow-600' :
+                          status === 'Cancelled' ? 'bg-red-600' :
+                          'bg-gray-600'
+                        }`}
+                        style={{ width: `${percentage}%` }}
+                      />
                     </div>
                   </div>
                 )
@@ -1189,6 +1534,7 @@ export default function CRMApplication() {
             { id: 'contacts', icon: Users, label: 'Contacts' },
             { id: 'pipeline', icon: Calendar, label: 'Pipeline' },
             { id: 'projects', icon: DollarSign, label: 'Projects' },
+            { id: 'recurring', icon: Clock, label: 'Recurring Billing' },
             { id: 'analytics', icon: ArrowUp, label: 'Analytics' },
             { id: 'automation', icon: Settings, label: 'Automation' }
           ].map(item => (
@@ -1234,6 +1580,7 @@ export default function CRMApplication() {
           {activeSection === 'contacts' && renderContacts()}
           {activeSection === 'pipeline' && renderPipeline()}
           {activeSection === 'projects' && renderProjects()}
+          {activeSection === 'recurring' && renderRecurringBilling()}
           {activeSection === 'analytics' && renderAnalytics()}
           {activeSection === 'automation' && renderAutomation()}
         </main>
@@ -1318,31 +1665,35 @@ export default function CRMApplication() {
         />
       )}
 
-      {showPaymentModal && selectedProjectForPayment && (
-        <Elements stripe={stripePromise}>
-          <PaymentModal
-            project={selectedProjectForPayment}
-            onPaymentSuccess={(payment) => {
-              addPayment(payment)
-              setShowPaymentModal(false)
-              setSelectedProjectForPayment(null)
-            }}
-            onClose={() => {
-              setShowPaymentModal(false)
-              setSelectedProjectForPayment(null)
-            }}
-          />
-        </Elements>
-      )}
-
       {showInvoiceModal && selectedProjectForInvoice && (
         <InvoiceModal
           project={selectedProjectForInvoice}
-          contact={getContactById(selectedProjectForInvoice.contactId)!}
           onSend={(invoiceData) => sendInvoice(selectedProjectForInvoice.id, invoiceData)}
           onClose={() => {
             setShowInvoiceModal(false)
             setSelectedProjectForInvoice(null)
+          }}
+        />
+      )}
+
+      {showPaymentModal && selectedProjectForPayment && (
+        <PaymentModal
+          project={selectedProjectForPayment}
+          onProcess={(amount) => processPayment(selectedProjectForPayment.id, amount)}
+          onClose={() => {
+            setShowPaymentModal(false)
+            setSelectedProjectForPayment(null)
+          }}
+        />
+      )}
+
+      {showRecurringModal && selectedProjectForRecurring && (
+        <RecurringModal
+          project={selectedProjectForRecurring}
+          onSave={(recurring) => addRecurringInvoice(recurring)}
+          onClose={() => {
+            setShowRecurringModal(false)
+            setSelectedProjectForRecurring(null)
           }}
         />
       )}
@@ -1476,171 +1827,6 @@ function ContactDetailView({
               Delete
             </Button>
           </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-// Invoice Modal Component
-function InvoiceModal({
-  project,
-  contact,
-  onSend,
-  onClose
-}: {
-  project: Project
-  contact: Contact
-  onSend: (invoiceData: { invoiceNumber: string; invoiceDate: string; dueDate: string }) => void
-  onClose: () => void
-}) {
-  const [invoiceNumber, setInvoiceNumber] = useState(project.invoiceNumber || '')
-  const [invoiceDate, setInvoiceDate] = useState(project.invoiceDate || new Date().toISOString().split('T')[0])
-  const [dueDate, setDueDate] = useState(project.dueDate2 || '')
-
-  useEffect(() => {
-    if (!invoiceNumber) {
-      const date = new Date()
-      const year = date.getFullYear()
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
-      setInvoiceNumber(`INV-${year}${month}-${random}`)
-    }
-  }, [invoiceNumber])
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    onSend({ invoiceNumber, invoiceDate, dueDate })
-  }
-
-  const total = project.charges.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
-  const paidAmount = project.paidAmount || 0
-  const remaining = total - paidAmount
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-3xl max-h-[90vh] overflow-auto">
-        <CardHeader>
-          <div className="flex items-start justify-between">
-            <div>
-              <CardTitle>Send Invoice to Client</CardTitle>
-              <CardDescription>{contact.name} - {contact.email}</CardDescription>
-            </div>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="h-5 w-5" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label htmlFor="invoiceNumber">Invoice Number *</Label>
-                <Input
-                  id="invoiceNumber"
-                  value={invoiceNumber}
-                  onChange={(e) => setInvoiceNumber(e.target.value)}
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="invoiceDate">Invoice Date *</Label>
-                <Input
-                  id="invoiceDate"
-                  type="date"
-                  value={invoiceDate}
-                  onChange={(e) => setInvoiceDate(e.target.value)}
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="dueDate">Due Date *</Label>
-                <Input
-                  id="dueDate"
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="border rounded-lg p-4 bg-gray-50">
-              <h3 className="font-semibold mb-4">Invoice Preview</h3>
-              
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="font-semibold">Bill To:</p>
-                    <p>{contact.name}</p>
-                    <p>{contact.email}</p>
-                    <p>{contact.phone}</p>
-                    <p>{contact.address}</p>
-                    <p>{contact.city}, {contact.state} {contact.zipCode}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold">Invoice Details:</p>
-                    <p>Invoice #: {invoiceNumber}</p>
-                    <p>Date: {new Date(invoiceDate).toLocaleDateString()}</p>
-                    <p>Due: {dueDate ? new Date(dueDate).toLocaleDateString() : 'Not set'}</p>
-                  </div>
-                </div>
-
-                <div className="border-t pt-4">
-                  <p className="font-semibold mb-2">Project: {project.name}</p>
-                  <table className="w-full text-sm">
-                    <thead className="border-b">
-                      <tr>
-                        <th className="text-left py-2">Description</th>
-                        <th className="text-right py-2">Qty</th>
-                        <th className="text-right py-2">Rate</th>
-                        <th className="text-right py-2">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {project.charges.map(item => (
-                        <tr key={item.id} className="border-b">
-                          <td className="py-2">{item.description}</td>
-                          <td className="text-right py-2">{item.quantity}</td>
-                          <td className="text-right py-2">${item.rate.toFixed(2)}</td>
-                          <td className="text-right py-2">${(item.quantity * item.rate).toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="border-t pt-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Subtotal:</span>
-                    <span>${total.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Already Paid:</span>
-                    <span className="text-green-600">-${paidAmount.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-lg font-bold border-t pt-2">
-                    <span>Amount Due:</span>
-                    <span className="text-red-600">${remaining.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-blue-800">
-                <strong>Note:</strong> This will send an email to {contact.email} with the invoice details and payment instructions.
-              </p>
-            </div>
-
-            <div className="flex gap-2 justify-end">
-              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-              <Button type="submit">
-                <Send className="mr-2 h-4 w-4" />
-                Send Invoice
-              </Button>
-            </div>
-          </form>
         </CardContent>
       </Card>
     </div>
@@ -1874,7 +2060,7 @@ function ProjectModal({
 }: {
   project: Project | null
   contacts: Contact[]
-  onSave: (project: Omit<Project, 'id' | 'paymentStatus' | 'paidAmount'>) => void
+  onSave: (project: Omit<Project, 'id'>) => void
   onClose: () => void
 }) {
   const [formData, setFormData] = useState({
@@ -2358,189 +2544,246 @@ function AutomationModal({
   )
 }
 
-// Payment Modal Component with Stripe Integration
-function PaymentModal({
+// Invoice Modal Component
+function InvoiceModal({
   project,
-  onPaymentSuccess,
+  onSend,
   onClose
 }: {
   project: Project
-  onPaymentSuccess: (payment: Omit<Payment, 'id'>) => void
+  onSend: (invoiceData: { invoiceNumber: string; invoiceDate: string; dueDate: string }) => void
   onClose: () => void
 }) {
-  const stripe = useStripe()
-  const elements = useElements()
-  const [processing, setProcessing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [amount, setAmount] = useState(0)
+  const [formData, setFormData] = useState({
+    invoiceNumber: `INV-${Date.now()}`,
+    invoiceDate: new Date().toISOString().split('T')[0],
+    dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  })
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSend(formData)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <Card className="w-full max-w-2xl">
+        <CardHeader>
+          <CardTitle>Send Invoice for {project.name}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="invoiceNumber">Invoice Number *</Label>
+              <Input
+                id="invoiceNumber"
+                value={formData.invoiceNumber}
+                onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="invoiceDate">Invoice Date *</Label>
+                <Input
+                  id="invoiceDate"
+                  type="date"
+                  value={formData.invoiceDate}
+                  onChange={(e) => setFormData({ ...formData, invoiceDate: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="dueDate">Due Date *</Label>
+                <Input
+                  id="dueDate"
+                  type="date"
+                  value={formData.dueDate}
+                  onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+              <Button type="submit">
+                <Mail className="mr-2 h-4 w-4" />
+                Send Invoice
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// Payment Modal Component
+function PaymentModal({
+  project,
+  onProcess,
+  onClose
+}: {
+  project: Project
+  onProcess: (amount: number) => void
+  onClose: () => void
+}) {
   const total = project.charges.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
   const paidAmount = project.paidAmount || 0
   const remaining = total - paidAmount
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const [paymentAmount, setPaymentAmount] = useState(remaining)
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-
-    if (!stripe || !elements) {
-      return
-    }
-
-    if (amount <= 0 || amount > remaining) {
-      setError(`Please enter an amount between $1 and $${remaining.toLocaleString()}`)
-      return
-    }
-
-    setProcessing(true)
-    setError(null)
-
-    try {
-      const response = await fetch('/api/create-payment-intent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amount: amount,
-          currency: 'usd',
-          description: `Payment for ${project.name}`
-        }),
-      })
-
-      const { clientSecret, error: backendError } = await response.json()
-
-      if (backendError) {
-        setError(backendError)
-        setProcessing(false)
-        return
-      }
-
-      const cardElement = elements.getElement(CardElement)
-
-      if (!cardElement) {
-        setError('Card element not found')
-        setProcessing(false)
-        return
-      }
-
-      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(
-        clientSecret,
-        {
-          payment_method: {
-            card: cardElement,
-          },
-        }
-      )
-
-      if (stripeError) {
-        setError(stripeError.message || 'Payment failed')
-        setProcessing(false)
-      } else if (paymentIntent && paymentIntent.status === 'succeeded') {
-        onPaymentSuccess({
-          projectId: project.id,
-          amount: amount,
-          status: 'Completed',
-          paymentDate: new Date().toISOString(),
-          paymentMethod: 'Credit Card'
-        })
-      }
-    } catch (err) {
-      setError('An unexpected error occurred')
-      setProcessing(false)
-    }
+    onProcess(paymentAmount)
   }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <div className="flex items-start justify-between">
-            <div>
-              <CardTitle>Process Payment</CardTitle>
-              <CardDescription>{project.name}</CardDescription>
-            </div>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="h-5 w-5" />
-            </Button>
-          </div>
+          <CardTitle>Process Payment for {project.name}</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4 mb-6">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Total Project Value:</span>
-              <span className="font-medium">${total.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Already Paid:</span>
-              <span className="font-medium">${paidAmount.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between text-lg font-bold pt-2 border-t">
-              <span>Remaining Balance:</span>
-              <span className="text-red-600">${remaining.toLocaleString()}</span>
-            </div>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Total Amount:</span>
+                <span className="font-bold">${total.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Already Paid:</span>
+                <span className="text-green-600">${paidAmount.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between pt-2 border-t">
+                <span className="text-gray-600 font-bold">Remaining:</span>
+                <span className="font-bold text-orange-600">${remaining.toFixed(2)}</span>
+              </div>
+            </div>
             <div>
-              <Label htmlFor="amount">Payment Amount *</Label>
+              <Label htmlFor="paymentAmount">Payment Amount *</Label>
               <Input
-                id="amount"
+                id="paymentAmount"
                 type="number"
                 step="0.01"
-                min="0.01"
+                min="0"
                 max={remaining}
-                value={amount}
-                onChange={(e) => setAmount(parseFloat(e.target.value))}
-                placeholder="Enter amount"
+                value={paymentAmount}
+                onChange={(e) => setPaymentAmount(parseFloat(e.target.value))}
                 required
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Maximum: ${remaining.toLocaleString()}
-              </p>
             </div>
-
-            <div>
-              <Label>Card Details</Label>
-              <div className="mt-2 p-3 border rounded-md">
-                <CardElement
-                  options={{
-                    style: {
-                      base: {
-                        fontSize: '16px',
-                        color: '#424770',
-                        '::placeholder': {
-                          color: '#aab7c4',
-                        },
-                      },
-                      invalid: {
-                        color: '#9e2146',
-                      },
-                    },
-                  }}
-                />
-              </div>
-            </div>
-
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-                <p className="text-sm text-red-600">{error}</p>
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={onClose} className="flex-1">
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!stripe || processing} className="flex-1">
-                {processing ? 'Processing...' : `Pay $${amount.toLocaleString()}`}
+            <div className="flex gap-2 justify-end">
+              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+              <Button type="submit">
+                <DollarSign className="mr-2 h-4 w-4" />
+                Process Payment
               </Button>
             </div>
           </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
-          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-            <p className="text-xs text-blue-800">
-              <strong>Test Card:</strong> 4242 4242 4242 4242 | Exp: Any future date | CVC: Any 3 digits
-            </p>
-          </div>
+// Recurring Modal Component
+function RecurringModal({
+  project,
+  onSave,
+  onClose
+}: {
+  project: Project
+  onSave: (recurring: Omit<RecurringInvoice, 'id' | 'invoiceCount' | 'isActive'>) => void
+  onClose: () => void
+}) {
+  const [formData, setFormData] = useState({
+    frequency: 'Monthly',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    nextInvoiceDate: new Date().toISOString().split('T')[0]
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSave({
+      projectId: project.id,
+      contactId: project.contactId,
+      ...formData
+    })
+  }
+
+  const recurringFrequencies = ['Weekly', 'Bi-Weekly', 'Monthly', 'Quarterly', 'Annually']
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <Card className="w-full max-w-2xl">
+        <CardHeader>
+          <CardTitle>Set Up Recurring Billing for {project.name}</CardTitle>
+          <CardDescription>Automatically send invoices on a schedule</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="frequency">Billing Frequency *</Label>
+              <Select value={formData.frequency} onValueChange={(value) => setFormData({ ...formData, frequency: value })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {recurringFrequencies.map(freq => (
+                    <SelectItem key={freq} value={freq}>{freq}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="startDate">Start Date *</Label>
+                <Input
+                  id="startDate"
+                  type="date"
+                  value={formData.startDate}
+                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="endDate">End Date *</Label>
+                <Input
+                  id="endDate"
+                  type="date"
+                  value={formData.endDate}
+                  onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="nextInvoiceDate">First Invoice Date *</Label>
+              <Input
+                id="nextInvoiceDate"
+                type="date"
+                value={formData.nextInvoiceDate}
+                onChange={(e) => setFormData({ ...formData, nextInvoiceDate: e.target.value })}
+                required
+              />
+            </div>
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <p className="text-sm text-blue-800">
+                <strong>Note:</strong> Invoices will be automatically generated and sent to the client on the scheduled dates. 
+                You can pause or modify the recurring billing at any time from the Recurring Billing section.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+              <Button type="submit">
+                <Clock className="mr-2 h-4 w-4" />
+                Set Up Recurring Billing
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
     </div>
