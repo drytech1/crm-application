@@ -1,4 +1,4 @@
- "use client"
+"use client"
 
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
@@ -50,7 +50,6 @@ interface Project {
   start_date: string
   due_date: string
   notes: string
-  line_items?: LineItem[]
 }
 
 interface LineItem {
@@ -92,10 +91,10 @@ export default function CRMApplication() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [deals, setDeals] = useState<Deal[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [lineItems, setLineItems] = useState<LineItem[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [emails, setEmails] = useState<Email[]>([])
   const [automations, setAutomations] = useState<Automation[]>([])
-  const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterState, setFilterState] = useState('all')
   const [filterCity, setFilterCity] = useState('all')
@@ -113,6 +112,7 @@ export default function CRMApplication() {
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [draggedDeal, setDraggedDeal] = useState<Deal | null>(null)
+  const [loading, setLoading] = useState(true)
 
   const pipelineStages = ['Lead', 'Qualified', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost']
   const projectStatuses = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled']
@@ -131,6 +131,7 @@ export default function CRMApplication() {
         loadContacts(),
         loadDeals(),
         loadProjects(),
+        loadLineItems(),
         loadTasks(),
         loadEmails(),
         loadAutomations()
@@ -169,32 +170,28 @@ export default function CRMApplication() {
   }
 
   const loadProjects = async () => {
-    const { data: projectsData, error: projectsError } = await supabase
+    const { data, error } = await supabase
       .from('projects')
       .select('*')
       .order('created_at', { ascending: false })
     
-    if (projectsError) {
-      console.error('Error loading projects:', projectsError)
-      return
+    if (error) {
+      console.error('Error loading projects:', error)
+    } else {
+      setProjects(data || [])
     }
+  }
 
-    // Load line items for each project
-    const { data: lineItemsData, error: lineItemsError } = await supabase
+  const loadLineItems = async () => {
+    const { data, error } = await supabase
       .from('line_items')
       .select('*')
     
-    if (lineItemsError) {
-      console.error('Error loading line items:', lineItemsError)
+    if (error) {
+      console.error('Error loading line items:', error)
+    } else {
+      setLineItems(data || [])
     }
-
-    // Combine projects with their line items
-    const projectsWithItems = (projectsData || []).map(project => ({
-      ...project,
-      line_items: (lineItemsData || []).filter(item => item.project_id === project.id)
-    }))
-
-    setProjects(projectsWithItems)
   }
 
   const loadTasks = async () => {
@@ -227,7 +224,6 @@ export default function CRMApplication() {
     const { data, error } = await supabase
       .from('automations')
       .select('*')
-      .order('created_at', { ascending: false })
     
     if (error) {
       console.error('Error loading automations:', error)
@@ -350,84 +346,71 @@ export default function CRMApplication() {
   }
 
   // Project Management Functions
-  const addProject = async (project: Omit<Project, 'id'>) => {
-    const { line_items, ...projectData } = project
-    
-    const { data: newProject, error: projectError } = await supabase
+  const addProject = async (project: Omit<Project, 'id'>, charges: Omit<LineItem, 'id' | 'project_id'>[]) => {
+    const { data, error } = await supabase
       .from('projects')
-      .insert([projectData])
+      .insert([project])
       .select()
-      .single()
     
-    if (projectError) {
-      console.error('Error adding project:', projectError)
+    if (error) {
+      console.error('Error adding project:', error)
       alert('Error adding project')
-      return
-    }
-
-    // Add line items if any
-    if (line_items && line_items.length > 0) {
-      const lineItemsToInsert = line_items.map(item => ({
-        project_id: newProject.id,
-        description: item.description,
-        quantity: item.quantity,
-        rate: item.rate
-      }))
-
-      const { error: lineItemsError } = await supabase
-        .from('line_items')
-        .insert(lineItemsToInsert)
-      
-      if (lineItemsError) {
-        console.error('Error adding line items:', lineItemsError)
+    } else if (data && data[0]) {
+      // Add line items
+      if (charges.length > 0) {
+        const lineItemsToInsert = charges.map(charge => ({
+          ...charge,
+          project_id: data[0].id
+        }))
+        
+        const { error: lineItemError } = await supabase
+          .from('line_items')
+          .insert(lineItemsToInsert)
+        
+        if (lineItemError) {
+          console.error('Error adding line items:', lineItemError)
+        }
       }
+      
+      await loadProjects()
+      await loadLineItems()
+      setShowProjectModal(false)
+      setEditingProject(null)
     }
-
-    await loadProjects()
-    setShowProjectModal(false)
-    setEditingProject(null)
   }
 
-  const updateProject = async (id: string, updates: Partial<Project>) => {
-    const { line_items, ...projectUpdates } = updates
-    
-    const { error: projectError } = await supabase
+  const updateProject = async (id: string, updates: Partial<Project>, charges: Omit<LineItem, 'id' | 'project_id'>[]) => {
+    const { error } = await supabase
       .from('projects')
-      .update(projectUpdates)
+      .update(updates)
       .eq('id', id)
     
-    if (projectError) {
-      console.error('Error updating project:', projectError)
+    if (error) {
+      console.error('Error updating project:', error)
       alert('Error updating project')
-      return
-    }
-
-    // Update line items if provided
-    if (line_items) {
-      // Delete existing line items
+    } else {
+      // Delete existing line items and add new ones
       await supabase
         .from('line_items')
         .delete()
         .eq('project_id', id)
       
-      // Insert new line items
-      if (line_items.length > 0) {
-        const lineItemsToInsert = line_items.map(item => ({
-          project_id: id,
-          description: item.description,
-          quantity: item.quantity,
-          rate: item.rate
+      if (charges.length > 0) {
+        const lineItemsToInsert = charges.map(charge => ({
+          ...charge,
+          project_id: id
         }))
-
+        
         await supabase
           .from('line_items')
           .insert(lineItemsToInsert)
       }
+      
+      await loadProjects()
+      await loadLineItems()
+      setShowProjectModal(false)
+      setEditingProject(null)
     }
-
-    await loadProjects()
-    setShowProjectModal(false)
-    setEditingProject(null)
   }
 
   const deleteProject = async (id: string) => {
@@ -442,6 +425,7 @@ export default function CRMApplication() {
         alert('Error deleting project')
       } else {
         await loadProjects()
+        await loadLineItems()
       }
     }
   }
@@ -459,6 +443,7 @@ export default function CRMApplication() {
     } else {
       await loadEmails()
       setShowEmailModal(false)
+      alert('Email sent successfully!')
     }
   }
 
@@ -480,19 +465,18 @@ export default function CRMApplication() {
 
   const toggleTaskStatus = async (id: string) => {
     const task = tasks.find(t => t.id === id)
-    if (!task) return
-
-    const newStatus = task.status === 'Completed' ? 'To Do' : 'Completed'
-    
-    const { error } = await supabase
-      .from('tasks')
-      .update({ status: newStatus })
-      .eq('id', id)
-    
-    if (error) {
-      console.error('Error updating task:', error)
-    } else {
-      await loadTasks()
+    if (task) {
+      const newStatus = task.status === 'Completed' ? 'To Do' : 'Completed'
+      const { error } = await supabase
+        .from('tasks')
+        .update({ status: newStatus })
+        .eq('id', id)
+      
+      if (error) {
+        console.error('Error updating task:', error)
+      } else {
+        await loadTasks()
+      }
     }
   }
 
@@ -514,17 +498,17 @@ export default function CRMApplication() {
 
   const toggleAutomation = async (id: string) => {
     const automation = automations.find(a => a.id === id)
-    if (!automation) return
-
-    const { error } = await supabase
-      .from('automations')
-      .update({ enabled: !automation.enabled })
-      .eq('id', id)
-    
-    if (error) {
-      console.error('Error toggling automation:', error)
-    } else {
-      await loadAutomations()
+    if (automation) {
+      const { error } = await supabase
+        .from('automations')
+        .update({ enabled: !automation.enabled })
+        .eq('id', id)
+      
+      if (error) {
+        console.error('Error updating automation:', error)
+      } else {
+        await loadAutomations()
+      }
     }
   }
 
@@ -545,14 +529,16 @@ export default function CRMApplication() {
 
   const getEmailsByContact = (contactId: string) => emails.filter(e => e.contact_id === contactId)
 
-  const calculateProjectTotal = (project: Project) => {
-    if (!project.line_items) return 0
-    return project.line_items.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
+  const getLineItemsByProject = (projectId: string) => lineItems.filter(li => li.project_id === projectId)
+
+  const calculateProjectTotal = (projectId: string) => {
+    const items = getLineItemsByProject(projectId)
+    return items.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
   }
 
   const calculateContactTotal = (contactId: string) => {
     const contactProjects = getProjectsByContact(contactId)
-    return contactProjects.reduce((sum, project) => sum + calculateProjectTotal(project), 0)
+    return contactProjects.reduce((sum, project) => sum + calculateProjectTotal(project.id), 0)
   }
 
   // Analytics Calculations
@@ -755,7 +741,7 @@ export default function CRMApplication() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All States</SelectItem>
-                {Array.from(new Set(contacts.map(c => c.state))).filter(Boolean).map(state => (
+                {Array.from(new Set(contacts.map(c => c.state))).filter(s => s).map(state => (
                   <SelectItem key={state} value={state}>{state}</SelectItem>
                 ))}
               </SelectContent>
@@ -766,7 +752,7 @@ export default function CRMApplication() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Cities</SelectItem>
-                {Array.from(new Set(contacts.map(c => c.city))).filter(Boolean).map(city => (
+                {Array.from(new Set(contacts.map(c => c.city))).filter(c => c).map(city => (
                   <SelectItem key={city} value={city}>{city}</SelectItem>
                 ))}
               </SelectContent>
@@ -832,6 +818,7 @@ export default function CRMApplication() {
           deals={getDealsByContact(selectedContact.id)}
           emails={getEmailsByContact(selectedContact.id)}
           totalCharges={calculateContactTotal(selectedContact.id)}
+          getLineItemsByProject={getLineItemsByProject}
         />
       )}
     </div>
@@ -945,7 +932,7 @@ export default function CRMApplication() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {projects.map(project => {
           const contact = getContactById(project.contact_id)
-          const total = calculateProjectTotal(project)
+          const total = calculateProjectTotal(project.id)
           return (
             <Card key={project.id}>
               <CardHeader>
@@ -1361,11 +1348,12 @@ export default function CRMApplication() {
         <ProjectModal
           project={editingProject}
           contacts={contacts}
-          onSave={(project) => {
+          lineItems={editingProject ? getLineItemsByProject(editingProject.id) : []}
+          onSave={(project, charges) => {
             if (editingProject) {
-              updateProject(editingProject.id, project)
+              updateProject(editingProject.id, project, charges)
             } else {
-              addProject(project)
+              addProject(project, charges)
             }
           }}
           onClose={() => {
@@ -1412,7 +1400,8 @@ function ContactDetailView({
   projects,
   deals,
   emails,
-  totalCharges
+  totalCharges,
+  getLineItemsByProject
 }: {
   contact: Contact
   onClose: () => void
@@ -1422,6 +1411,7 @@ function ContactDetailView({
   deals: Deal[]
   emails: Email[]
   totalCharges: number
+  getLineItemsByProject: (projectId: string) => LineItem[]
 }) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1491,7 +1481,8 @@ function ContactDetailView({
             <h3 className="font-semibold mb-3">Projects</h3>
             <div className="space-y-2">
               {projects.map(project => {
-                const total = project.line_items?.reduce((sum, item) => sum + (item.quantity * item.rate), 0) || 0
+                const items = getLineItemsByProject(project.id)
+                const total = items.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
                 return (
                   <div key={project.id} className="p-3 border rounded-lg flex items-center justify-between">
                     <div>
@@ -1625,9 +1616,9 @@ function ContactModal({
                 />
               </div>
               <div>
-                <Label htmlFor="zipCode">Zip Code</Label>
+                <Label htmlFor="zip_code">Zip Code</Label>
                 <Input
-                  id="zipCode"
+                  id="zip_code"
                   value={formData.zip_code}
                   onChange={(e) => setFormData({ ...formData, zip_code: e.target.value })}
                 />
@@ -1728,9 +1719,9 @@ function DealModal({
               </div>
             </div>
             <div>
-              <Label htmlFor="expectedCloseDate">Expected Close Date</Label>
+              <Label htmlFor="expected_close_date">Expected Close Date</Label>
               <Input
-                id="expectedCloseDate"
+                id="expected_close_date"
                 type="date"
                 value={formData.expected_close_date}
                 onChange={(e) => setFormData({ ...formData, expected_close_date: e.target.value })}
@@ -1760,12 +1751,14 @@ function DealModal({
 function ProjectModal({
   project,
   contacts,
+  lineItems,
   onSave,
   onClose
 }: {
   project: Project | null
   contacts: Contact[]
-  onSave: (project: Omit<Project, 'id'>) => void
+  lineItems: LineItem[]
+  onSave: (project: Omit<Project, 'id'>, charges: Omit<LineItem, 'id' | 'project_id'>[]) => void
   onClose: () => void
 }) {
   const [formData, setFormData] = useState({
@@ -1774,34 +1767,34 @@ function ProjectModal({
     status: project?.status || 'Not Started',
     start_date: project?.start_date || '',
     due_date: project?.due_date || '',
-    notes: project?.notes || '',
-    line_items: project?.line_items || []
+    notes: project?.notes || ''
   })
+
+  const [charges, setCharges] = useState<Omit<LineItem, 'id' | 'project_id'>[]>(
+    lineItems.map(item => ({
+      description: item.description,
+      quantity: item.quantity,
+      rate: item.rate
+    }))
+  )
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSave(formData)
+    onSave(formData, charges)
   }
 
   const addLineItem = () => {
-    setFormData({
-      ...formData,
-      line_items: [...formData.line_items, { id: Date.now().toString(), project_id: '', description: '', quantity: 1, rate: 0 }]
-    })
+    setCharges([...charges, { description: '', quantity: 1, rate: 0 }])
   }
 
-  const updateLineItem = (id: string, updates: Partial<LineItem>) => {
-    setFormData({
-      ...formData,
-      line_items: formData.line_items.map(item => item.id === id ? { ...item, ...updates } : item)
-    })
+  const updateLineItem = (index: number, updates: Partial<Omit<LineItem, 'id' | 'project_id'>>) => {
+    const newCharges = [...charges]
+    newCharges[index] = { ...newCharges[index], ...updates }
+    setCharges(newCharges)
   }
 
-  const removeLineItem = (id: string) => {
-    setFormData({
-      ...formData,
-      line_items: formData.line_items.filter(item => item.id !== id)
-    })
+  const removeLineItem = (index: number) => {
+    setCharges(charges.filter((_, i) => i !== index))
   }
 
   const projectStatuses = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled']
@@ -1851,18 +1844,18 @@ function ProjectModal({
                 </Select>
               </div>
               <div>
-                <Label htmlFor="startDate">Start Date</Label>
+                <Label htmlFor="start_date">Start Date</Label>
                 <Input
-                  id="startDate"
+                  id="start_date"
                   type="date"
                   value={formData.start_date}
                   onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
                 />
               </div>
               <div>
-                <Label htmlFor="dueDate">Due Date</Label>
+                <Label htmlFor="due_date">Due Date</Label>
                 <Input
-                  id="dueDate"
+                  id="due_date"
                   type="date"
                   value={formData.due_date}
                   onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
@@ -1887,26 +1880,26 @@ function ProjectModal({
                 </Button>
               </div>
               <div className="space-y-2">
-                {formData.line_items.map(item => (
-                  <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
+                {charges.map((item, index) => (
+                  <div key={index} className="grid grid-cols-12 gap-2 items-center">
                     <Input
                       placeholder="Description"
                       value={item.description}
-                      onChange={(e) => updateLineItem(item.id, { description: e.target.value })}
+                      onChange={(e) => updateLineItem(index, { description: e.target.value })}
                       className="col-span-5"
                     />
                     <Input
                       type="number"
                       placeholder="Qty"
                       value={item.quantity}
-                      onChange={(e) => updateLineItem(item.id, { quantity: parseFloat(e.target.value) })}
+                      onChange={(e) => updateLineItem(index, { quantity: parseFloat(e.target.value) })}
                       className="col-span-2"
                     />
                     <Input
                       type="number"
                       placeholder="Rate"
                       value={item.rate}
-                      onChange={(e) => updateLineItem(item.id, { rate: parseFloat(e.target.value) })}
+                      onChange={(e) => updateLineItem(index, { rate: parseFloat(e.target.value) })}
                       className="col-span-2"
                     />
                     <div className="col-span-2 font-medium">
@@ -1916,16 +1909,16 @@ function ProjectModal({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => removeLineItem(item.id)}
+                      onClick={() => removeLineItem(index)}
                       className="col-span-1"
                     >
                       <Trash className="h-4 w-4 text-red-600" />
                     </Button>
                   </div>
                 ))}
-                {formData.line_items.length > 0 && (
+                {charges.length > 0 && (
                   <div className="flex justify-end font-bold text-lg pt-2 border-t">
-                    Total: ${formData.line_items.reduce((sum, item) => sum + (item.quantity * item.rate), 0).toFixed(2)}
+                    Total: ${charges.reduce((sum, item) => sum + (item.quantity * item.rate), 0).toFixed(2)}
                   </div>
                 )}
               </div>
@@ -2100,9 +2093,9 @@ function TaskModal({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="dueDate">Due Date *</Label>
+                <Label htmlFor="due_date">Due Date *</Label>
                 <Input
-                  id="dueDate"
+                  id="due_date"
                   type="date"
                   value={formData.due_date}
                   onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
@@ -2125,7 +2118,7 @@ function TaskModal({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="linkedTo">Link To *</Label>
+                <Label htmlFor="linked_to">Link To *</Label>
                 <Select value={formData.linked_to} onValueChange={(value) => setFormData({ ...formData, linked_to: value, linked_id: '' })}>
                   <SelectTrigger>
                     <SelectValue />
@@ -2138,7 +2131,7 @@ function TaskModal({
                 </Select>
               </div>
               <div>
-                <Label htmlFor="linkedId">Select Item *</Label>
+                <Label htmlFor="linked_id">Select Item *</Label>
                 <Select value={formData.linked_id} onValueChange={(value) => setFormData({ ...formData, linked_id: value })}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select an item" />
@@ -2248,5 +2241,7 @@ function AutomationModal({
     </div>
   )
 }
+
+// END OF FILE
 
 // END OF FILE
