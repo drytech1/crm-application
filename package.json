@@ -1,32 +1,36 @@
 {
-  "name": "nextjs-app",
+  "name": "crm-application",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "15.3.3",
-    "react": "^19",
-    "react-dom": "^19",
-    "framer-motion": "^11.18.2",
-    "lucide-react": "^0.503.0",
+    "next": "^15.5.15",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "lucide-react": "^0.468.0",
+    "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^2.5.2",
-    "class-variance-authority": "^0.7.0"
+    "tailwind-merge": "^2.5.5",
+    "framer-motion": "^11.11.17",
+    "@radix-ui/react-avatar": "^1.1.2",
+    "@radix-ui/react-slot": "^1.1.1",
+    "@radix-ui/react-select": "^2.1.4",
+    "@radix-ui/react-label": "^2.1.1"
   },
   "devDependencies": {
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "autoprefixer": "^10.0.1",
-    "eslint": "^8",
-    "eslint-config-next": "15.3.3",
-    "postcss": "^8",
-    "tailwindcss": "^3.3.0",
-    "typescript": "^5"
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.6",
+    "@types/react-dom": "^19.0.2",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.1.3"
   }
 }
