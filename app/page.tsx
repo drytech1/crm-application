@@ -110,22 +110,14 @@ export default function CRMApplication() {
   const taskPriorities = ['Low', 'Medium', 'High', 'Urgent']
   const taskStatuses = ['To Do', 'In Progress', 'Completed']
 
-  // Load data from localStorage
-  useEffect(() => {
-    const savedContacts = localStorage.getItem('crm_contacts')
-    const savedDeals = localStorage.getItem('crm_deals')
-    const savedProjects = localStorage.getItem('crm_projects')
-    const savedTasks = localStorage.getItem('crm_tasks')
-    const savedEmails = localStorage.getItem('crm_emails')
-    const savedAutomations = localStorage.getItem('crm_automations')
-
-    if (savedContacts) setContacts(JSON.parse(savedContacts))
-    if (savedDeals) setDeals(JSON.parse(savedDeals))
-    if (savedProjects) setProjects(JSON.parse(savedProjects))
-    if (savedTasks) setTasks(JSON.parse(savedTasks))
-    if (savedEmails) setEmails(JSON.parse(savedEmails))
-    if (savedAutomations) setAutomations(JSON.parse(savedAutomations))
-  }, [])
+  // Replace this in your component
+useEffect(() => {
+  // Fetch contacts from API
+  fetch('/api/contacts')
+    .then(res => res.json())
+    .then(data => setContacts(data))
+    .catch(err => console.error('Error fetching contacts:', err));
+}, []);
 
   // Save data to localStorage
   useEffect(() => {
