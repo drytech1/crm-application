@@ -1,0 +1,38 @@
+import { NextResponse } from 'next/server';
+import { sql } from '@vercel/postgres';
+
+export async function PUT(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const body = await request.json();
+    const { name, email, phone, address, city, state, zip_code } = body;
+    const id = params.id;
+
+    const { rows } = await sql`
+      UPDATE contacts
+      SET name = ${name}, email = ${email}, phone = ${phone},
+          address = ${address}, city = ${city}, state = ${state}, zip_code = ${zip_code}
+      WHERE id = ${id}
+      RETURNING *
+    `;
+
+    return NextResponse.json(rows[0]);
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to update contact' }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const id = params.id;
+    await sql`DELETE FROM contacts WHERE id = ${id}`;
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to delete contact' }, { status: 500 });
+  }
+}
