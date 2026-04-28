@@ -10,12 +10,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Home, Users, Calendar, DollarSign, Mail, Settings, Search, Plus, Edit, Trash, X, ChevronRight, ArrowRight, ArrowUp, ArrowDown, Menu, Bell, Check, Clock, Play, Shield } from 'lucide-react'
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
 // Types
 interface Contact {
   id: string
@@ -25,35 +19,35 @@ interface Contact {
   address: string
   city: string
   state: string
-  zip_code: string
-  created_at: string
+  zipCode: string
+  createdAt: string
 }
 
 interface Deal {
   id: string
   name: string
-  contact_id: string
+  contactId: string
   value: number
   stage: string
-  expected_close_date: string
+  expectedCloseDate: string
   notes: string
-  created_at: string
-  days_in_stage: number
+  createdAt: string
+  daysInStage: number
 }
 
 interface Project {
   id: string
   name: string
-  contact_id: string
+  contactId: string
   status: string
-  start_date: string
-  due_date: string
+  startDate: string
+  dueDate: string
+  charges: LineItem[]
   notes: string
 }
 
 interface LineItem {
   id: string
-  project_id: string
   description: string
   quantity: number
   rate: number
@@ -62,19 +56,19 @@ interface LineItem {
 interface Task {
   id: string
   name: string
-  due_date: string
+  dueDate: string
   priority: string
   status: string
-  linked_to: string
-  linked_id: string
+  linkedTo: string
+  linkedId: string
 }
 
 interface Email {
   id: string
-  contact_id: string
+  contactId: string
   subject: string
   body: string
-  sent_at: string
+  sentAt: string
 }
 
 interface Automation {
@@ -90,7 +84,6 @@ export default function CRMApplication() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [deals, setDeals] = useState<Deal[]>([])
   const [projects, setProjects] = useState<Project[]>([])
-  const [lineItems, setLineItems] = useState<LineItem[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [emails, setEmails] = useState<Email[]>([])
   const [automations, setAutomations] = useState<Automation[]>([])
@@ -111,404 +104,168 @@ export default function CRMApplication() {
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [draggedDeal, setDraggedDeal] = useState<Deal | null>(null)
-  const [loading, setLoading] = useState(true)
 
   const pipelineStages = ['Lead', 'Qualified', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost']
   const projectStatuses = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled']
   const taskPriorities = ['Low', 'Medium', 'High', 'Urgent']
   const taskStatuses = ['To Do', 'In Progress', 'Completed']
 
-  // Load all data from Supabase
+  // Load data from localStorage
   useEffect(() => {
-    loadAllData()
+    const savedContacts = localStorage.getItem('crm_contacts')
+    const savedDeals = localStorage.getItem('crm_deals')
+    const savedProjects = localStorage.getItem('crm_projects')
+    const savedTasks = localStorage.getItem('crm_tasks')
+    const savedEmails = localStorage.getItem('crm_emails')
+    const savedAutomations = localStorage.getItem('crm_automations')
+
+    if (savedContacts) setContacts(JSON.parse(savedContacts))
+    if (savedDeals) setDeals(JSON.parse(savedDeals))
+    if (savedProjects) setProjects(JSON.parse(savedProjects))
+    if (savedTasks) setTasks(JSON.parse(savedTasks))
+    if (savedEmails) setEmails(JSON.parse(savedEmails))
+    if (savedAutomations) setAutomations(JSON.parse(savedAutomations))
   }, [])
 
-  const loadAllData = async () => {
-    setLoading(true)
-    try {
-      await Promise.all([
-        loadContacts(),
-        loadDeals(),
-        loadProjects(),
-        loadLineItems(),
-        loadTasks(),
-        loadEmails(),
-        loadAutomations()
-      ])
-    } catch (error) {
-      console.error('Error loading data:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  // Save data to localStorage
+  useEffect(() => {
+    localStorage.setItem('crm_contacts', JSON.stringify(contacts))
+  }, [contacts])
 
-  const loadContacts = async () => {
-    const { data, error } = await supabase
-      .from('contacts')
-      .select('*')
-      .order('created_at', { ascending: false })
-    
-    if (error) {
-      console.error('Error loading contacts:', error)
-    } else {
-      setContacts(data || [])
-    }
-  }
+  useEffect(() => {
+    localStorage.setItem('crm_deals', JSON.stringify(deals))
+  }, [deals])
 
-  const loadDeals = async () => {
-    const { data, error } = await supabase
-      .from('deals')
-      .select('*')
-      .order('created_at', { ascending: false })
-    
-    if (error) {
-      console.error('Error loading deals:', error)
-    } else {
-      setDeals(data || [])
-    }
-  }
+  useEffect(() => {
+    localStorage.setItem('crm_projects', JSON.stringify(projects))
+  }, [projects])
 
-  const loadProjects = async () => {
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false })
-    
-    if (error) {
-      console.error('Error loading projects:', error)
-    } else {
-      setProjects(data || [])
-    }
-  }
+  useEffect(() => {
+    localStorage.setItem('crm_tasks', JSON.stringify(tasks))
+  }, [tasks])
 
-  const loadLineItems = async () => {
-    const { data, error } = await supabase
-      .from('line_items')
-      .select('*')
-    
-    if (error) {
-      console.error('Error loading line items:', error)
-    } else {
-      setLineItems(data || [])
-    }
-  }
+  useEffect(() => {
+    localStorage.setItem('crm_emails', JSON.stringify(emails))
+  }, [emails])
 
-  const loadTasks = async () => {
-    const { data, error } = await supabase
-      .from('tasks')
-      .select('*')
-      .order('due_date', { ascending: true })
-    
-    if (error) {
-      console.error('Error loading tasks:', error)
-    } else {
-      setTasks(data || [])
-    }
-  }
-
-  const loadEmails = async () => {
-    const { data, error } = await supabase
-      .from('emails')
-      .select('*')
-      .order('sent_at', { ascending: false })
-    
-    if (error) {
-      console.error('Error loading emails:', error)
-    } else {
-      setEmails(data || [])
-    }
-  }
-
-  const loadAutomations = async () => {
-    const { data, error } = await supabase
-      .from('automations')
-      .select('*')
-    
-    if (error) {
-      console.error('Error loading automations:', error)
-    } else {
-      setAutomations(data || [])
-    }
-  }
+  useEffect(() => {
+    localStorage.setItem('crm_automations', JSON.stringify(automations))
+  }, [automations])
 
   // Contact Management Functions
-  const addContact = async (contact: Omit<Contact, 'id' | 'created_at'>) => {
-    const { data, error } = await supabase
-      .from('contacts')
-      .insert([contact])
-      .select()
-    
-    if (error) {
-      console.error('Error adding contact:', error)
-      alert('Error adding contact')
-    } else {
-      await loadContacts()
-      setShowContactModal(false)
-      setEditingContact(null)
+  const addContact = (contact: Omit<Contact, 'id' | 'createdAt'>) => {
+    const newContact: Contact = {
+      ...contact,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString()
     }
+    setContacts([...contacts, newContact])
+    setShowContactModal(false)
+    setEditingContact(null)
   }
 
-  const updateContact = async (id: string, updates: Partial<Contact>) => {
-    const { error } = await supabase
-      .from('contacts')
-      .update(updates)
-      .eq('id', id)
-    
-    if (error) {
-      console.error('Error updating contact:', error)
-      alert('Error updating contact')
-    } else {
-      await loadContacts()
-      setShowContactModal(false)
-      setEditingContact(null)
-    }
+  const updateContact = (id: string, updates: Partial<Contact>) => {
+    setContacts(contacts.map(c => c.id === id ? { ...c, ...updates } : c))
+    setShowContactModal(false)
+    setEditingContact(null)
   }
 
-  const deleteContact = async (id: string) => {
-    if (confirm('Are you sure you want to delete this contact? This will also delete all associated deals, projects, and emails.')) {
-      const { error } = await supabase
-        .from('contacts')
-        .delete()
-        .eq('id', id)
-      
-      if (error) {
-        console.error('Error deleting contact:', error)
-        alert('Error deleting contact')
-      } else {
-        await loadContacts()
-        setSelectedContact(null)
-      }
+  const deleteContact = (id: string) => {
+    if (confirm('Are you sure you want to delete this contact?')) {
+      setContacts(contacts.filter(c => c.id !== id))
+      setSelectedContact(null)
     }
   }
 
   // Deal Management Functions
-  const addDeal = async (deal: Omit<Deal, 'id' | 'created_at' | 'days_in_stage'>) => {
-    const { data, error } = await supabase
-      .from('deals')
-      .insert([{ ...deal, days_in_stage: 0 }])
-      .select()
-    
-    if (error) {
-      console.error('Error adding deal:', error)
-      alert('Error adding deal')
-    } else {
-      await loadDeals()
-      setShowDealModal(false)
-      setEditingDeal(null)
+  const addDeal = (deal: Omit<Deal, 'id' | 'createdAt' | 'daysInStage'>) => {
+    const newDeal: Deal = {
+      ...deal,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
+      daysInStage: 0
     }
+    setDeals([...deals, newDeal])
+    setShowDealModal(false)
+    setEditingDeal(null)
   }
 
-  const updateDeal = async (id: string, updates: Partial<Deal>) => {
-    const { error } = await supabase
-      .from('deals')
-      .update(updates)
-      .eq('id', id)
-    
-    if (error) {
-      console.error('Error updating deal:', error)
-      alert('Error updating deal')
-    } else {
-      await loadDeals()
-      setShowDealModal(false)
-      setEditingDeal(null)
-    }
+  const updateDeal = (id: string, updates: Partial<Deal>) => {
+    setDeals(deals.map(d => d.id === id ? { ...d, ...updates } : d))
+    setShowDealModal(false)
+    setEditingDeal(null)
   }
 
-  const deleteDeal = async (id: string) => {
+  const deleteDeal = (id: string) => {
     if (confirm('Are you sure you want to delete this deal?')) {
-      const { error } = await supabase
-        .from('deals')
-        .delete()
-        .eq('id', id)
-      
-      if (error) {
-        console.error('Error deleting deal:', error)
-        alert('Error deleting deal')
-      } else {
-        await loadDeals()
-      }
+      setDeals(deals.filter(d => d.id !== id))
     }
   }
 
-  const moveDeal = async (dealId: string, newStage: string) => {
-    const { error } = await supabase
-      .from('deals')
-      .update({ stage: newStage, days_in_stage: 0 })
-      .eq('id', dealId)
-    
-    if (error) {
-      console.error('Error moving deal:', error)
-      alert('Error moving deal')
-    } else {
-      await loadDeals()
-    }
+  const moveDeal = (dealId: string, newStage: string) => {
+    setDeals(deals.map(d => d.id === dealId ? { ...d, stage: newStage, daysInStage: 0 } : d))
   }
 
   // Project Management Functions
-  const addProject = async (project: Omit<Project, 'id'>, charges: Omit<LineItem, 'id' | 'project_id'>[]) => {
-    const { data, error } = await supabase
-      .from('projects')
-      .insert([project])
-      .select()
-    
-    if (error) {
-      console.error('Error adding project:', error)
-      alert('Error adding project')
-    } else if (data && data[0]) {
-      // Add line items
-      if (charges.length > 0) {
-        const lineItemsToInsert = charges.map(charge => ({
-          ...charge,
-          project_id: data[0].id
-        }))
-        
-        const { error: lineItemError } = await supabase
-          .from('line_items')
-          .insert(lineItemsToInsert)
-        
-        if (lineItemError) {
-          console.error('Error adding line items:', lineItemError)
-        }
-      }
-      
-      await loadProjects()
-      await loadLineItems()
-      setShowProjectModal(false)
-      setEditingProject(null)
+  const addProject = (project: Omit<Project, 'id'>) => {
+    const newProject: Project = {
+      ...project,
+      id: Date.now().toString()
     }
+    setProjects([...projects, newProject])
+    setShowProjectModal(false)
+    setEditingProject(null)
   }
 
-  const updateProject = async (id: string, updates: Partial<Project>, charges: Omit<LineItem, 'id' | 'project_id'>[]) => {
-    const { error } = await supabase
-      .from('projects')
-      .update(updates)
-      .eq('id', id)
-    
-    if (error) {
-      console.error('Error updating project:', error)
-      alert('Error updating project')
-    } else {
-      // Delete existing line items and add new ones
-      await supabase
-        .from('line_items')
-        .delete()
-        .eq('project_id', id)
-      
-      if (charges.length > 0) {
-        const lineItemsToInsert = charges.map(charge => ({
-          ...charge,
-          project_id: id
-        }))
-        
-        await supabase
-          .from('line_items')
-          .insert(lineItemsToInsert)
-      }
-      
-      await loadProjects()
-      await loadLineItems()
-      setShowProjectModal(false)
-      setEditingProject(null)
-    }
+  const updateProject = (id: string, updates: Partial<Project>) => {
+    setProjects(projects.map(p => p.id === id ? { ...p, ...updates } : p))
+    setShowProjectModal(false)
+    setEditingProject(null)
   }
 
-  const deleteProject = async (id: string) => {
+  const deleteProject = (id: string) => {
     if (confirm('Are you sure you want to delete this project?')) {
-      const { error } = await supabase
-        .from('projects')
-        .delete()
-        .eq('id', id)
-      
-      if (error) {
-        console.error('Error deleting project:', error)
-        alert('Error deleting project')
-      } else {
-        await loadProjects()
-        await loadLineItems()
-      }
+      setProjects(projects.filter(p => p.id !== id))
     }
   }
 
   // Email Functions
-  const sendEmail = async (email: Omit<Email, 'id' | 'sent_at'>) => {
-    const { data, error } = await supabase
-      .from('emails')
-      .insert([email])
-      .select()
-    
-    if (error) {
-      console.error('Error sending email:', error)
-      alert('Error sending email')
-    } else {
-      await loadEmails()
-      setShowEmailModal(false)
-      alert('Email sent successfully!')
+  const sendEmail = (email: Omit<Email, 'id' | 'sentAt'>) => {
+    const newEmail: Email = {
+      ...email,
+      id: Date.now().toString(),
+      sentAt: new Date().toISOString()
     }
+    setEmails([...emails, newEmail])
+    setShowEmailModal(false)
   }
 
   // Task Functions
-  const addTask = async (task: Omit<Task, 'id'>) => {
-    const { data, error } = await supabase
-      .from('tasks')
-      .insert([task])
-      .select()
-    
-    if (error) {
-      console.error('Error adding task:', error)
-      alert('Error adding task')
-    } else {
-      await loadTasks()
-      setShowTaskModal(false)
+  const addTask = (task: Omit<Task, 'id'>) => {
+    const newTask: Task = {
+      ...task,
+      id: Date.now().toString()
     }
+    setTasks([...tasks, newTask])
+    setShowTaskModal(false)
   }
 
-  const toggleTaskStatus = async (id: string) => {
-    const task = tasks.find(t => t.id === id)
-    if (task) {
-      const newStatus = task.status === 'Completed' ? 'To Do' : 'Completed'
-      const { error } = await supabase
-        .from('tasks')
-        .update({ status: newStatus })
-        .eq('id', id)
-      
-      if (error) {
-        console.error('Error updating task:', error)
-      } else {
-        await loadTasks()
-      }
-    }
+  const toggleTaskStatus = (id: string) => {
+    setTasks(tasks.map(t => t.id === id ? { ...t, status: t.status === 'Completed' ? 'To Do' : 'Completed' } : t))
   }
 
   // Automation Functions
-  const addAutomation = async (automation: Omit<Automation, 'id'>) => {
-    const { data, error } = await supabase
-      .from('automations')
-      .insert([automation])
-      .select()
-    
-    if (error) {
-      console.error('Error adding automation:', error)
-      alert('Error adding automation')
-    } else {
-      await loadAutomations()
-      setShowAutomationModal(false)
+  const addAutomation = (automation: Omit<Automation, 'id'>) => {
+    const newAutomation: Automation = {
+      ...automation,
+      id: Date.now().toString()
     }
+    setAutomations([...automations, newAutomation])
+    setShowAutomationModal(false)
   }
 
-  const toggleAutomation = async (id: string) => {
-    const automation = automations.find(a => a.id === id)
-    if (automation) {
-      const { error } = await supabase
-        .from('automations')
-        .update({ enabled: !automation.enabled })
-        .eq('id', id)
-      
-      if (error) {
-        console.error('Error updating automation:', error)
-      } else {
-        await loadAutomations()
-      }
-    }
+  const toggleAutomation = (id: string) => {
+    setAutomations(automations.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a))
   }
 
   // Filter and Search
@@ -522,22 +279,19 @@ export default function CRMApplication() {
 
   const getContactById = (id: string) => contacts.find(c => c.id === id)
 
-  const getProjectsByContact = (contactId: string) => projects.filter(p => p.contact_id === contactId)
+  const getProjectsByContact = (contactId: string) => projects.filter(p => p.contactId === contactId)
 
-  const getDealsByContact = (contactId: string) => deals.filter(d => d.contact_id === contactId)
+  const getDealsByContact = (contactId: string) => deals.filter(d => d.contactId === contactId)
 
-  const getEmailsByContact = (contactId: string) => emails.filter(e => e.contact_id === contactId)
+  const getEmailsByContact = (contactId: string) => emails.filter(e => e.contactId === contactId)
 
-  const getLineItemsByProject = (projectId: string) => lineItems.filter(li => li.project_id === projectId)
-
-  const calculateProjectTotal = (projectId: string) => {
-    const items = getLineItemsByProject(projectId)
-    return items.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
+  const calculateProjectTotal = (project: Project) => {
+    return project.charges.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
   }
 
   const calculateContactTotal = (contactId: string) => {
     const contactProjects = getProjectsByContact(contactId)
-    return contactProjects.reduce((sum, project) => sum + calculateProjectTotal(project.id), 0)
+    return contactProjects.reduce((sum, project) => sum + calculateProjectTotal(project), 0)
   }
 
   // Analytics Calculations
@@ -568,17 +322,6 @@ export default function CRMApplication() {
       moveDeal(draggedDeal.id, stage)
       setDraggedDeal(null)
     }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading CRM...</p>
-        </div>
-      </div>
-    )
   }
 
   // Render Functions
@@ -687,7 +430,7 @@ export default function CRMApplication() {
                     />
                     <div>
                       <p className="font-medium">{task.name}</p>
-                      <p className="text-sm text-gray-500">Due: {new Date(task.due_date).toLocaleDateString()}</p>
+                      <p className="text-sm text-gray-500">Due: {new Date(task.dueDate).toLocaleDateString()}</p>
                     </div>
                   </div>
                   <span className={`px-2 py-1 text-xs rounded ${
@@ -740,7 +483,7 @@ export default function CRMApplication() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All States</SelectItem>
-                {Array.from(new Set(contacts.map(c => c.state))).filter(s => s).map(state => (
+                {Array.from(new Set(contacts.map(c => c.state))).map(state => (
                   <SelectItem key={state} value={state}>{state}</SelectItem>
                 ))}
               </SelectContent>
@@ -751,7 +494,7 @@ export default function CRMApplication() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Cities</SelectItem>
-                {Array.from(new Set(contacts.map(c => c.city))).filter(c => c).map(city => (
+                {Array.from(new Set(contacts.map(c => c.city))).map(city => (
                   <SelectItem key={city} value={city}>{city}</SelectItem>
                 ))}
               </SelectContent>
@@ -817,7 +560,6 @@ export default function CRMApplication() {
           deals={getDealsByContact(selectedContact.id)}
           emails={getEmailsByContact(selectedContact.id)}
           totalCharges={calculateContactTotal(selectedContact.id)}
-          getLineItemsByProject={getLineItemsByProject}
         />
       )}
     </div>
@@ -881,7 +623,7 @@ export default function CRMApplication() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {getDealsByStage(stage).map(deal => {
-                    const contact = getContactById(deal.contact_id)
+                    const contact = getContactById(deal.contactId)
                     return (
                       <div
                         key={deal.id}
@@ -901,7 +643,7 @@ export default function CRMApplication() {
                         <p className="text-sm text-gray-600 mb-2">{contact?.name}</p>
                         <div className="flex items-center justify-between">
                           <span className="text-lg font-bold text-green-600">${deal.value.toLocaleString()}</span>
-                          <span className="text-xs text-gray-500">{deal.days_in_stage} days</span>
+                          <span className="text-xs text-gray-500">{deal.daysInStage} days</span>
                         </div>
                       </div>
                     )
@@ -930,8 +672,8 @@ export default function CRMApplication() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {projects.map(project => {
-          const contact = getContactById(project.contact_id)
-          const total = calculateProjectTotal(project.id)
+          const contact = getContactById(project.contactId)
+          const total = calculateProjectTotal(project)
           return (
             <Card key={project.id}>
               <CardHeader>
@@ -955,11 +697,11 @@ export default function CRMApplication() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Start Date:</span>
-                    <span>{project.start_date ? new Date(project.start_date).toLocaleDateString() : 'N/A'}</span>
+                    <span>{new Date(project.startDate).toLocaleDateString()}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Due Date:</span>
-                    <span>{project.due_date ? new Date(project.due_date).toLocaleDateString() : 'N/A'}</span>
+                    <span>{new Date(project.dueDate).toLocaleDateString()}</span>
                   </div>
                   <div className="flex justify-between text-sm font-bold pt-2 border-t">
                     <span>Total Charges:</span>
@@ -1221,7 +963,7 @@ export default function CRMApplication() {
                       {task.name}
                     </p>
                     <p className="text-sm text-gray-500">
-                      Due: {new Date(task.due_date).toLocaleDateString()} • {task.linked_to}
+                      Due: {new Date(task.dueDate).toLocaleDateString()} • {task.linkedTo}
                     </p>
                   </div>
                 </div>
@@ -1347,12 +1089,11 @@ export default function CRMApplication() {
         <ProjectModal
           project={editingProject}
           contacts={contacts}
-          lineItems={editingProject ? getLineItemsByProject(editingProject.id) : []}
-          onSave={(project, charges) => {
+          onSave={(project) => {
             if (editingProject) {
-              updateProject(editingProject.id, project, charges)
+              updateProject(editingProject.id, project)
             } else {
-              addProject(project, charges)
+              addProject(project)
             }
           }}
           onClose={() => {
@@ -1399,8 +1140,7 @@ function ContactDetailView({
   projects,
   deals,
   emails,
-  totalCharges,
-  getLineItemsByProject
+  totalCharges
 }: {
   contact: Contact
   onClose: () => void
@@ -1410,7 +1150,6 @@ function ContactDetailView({
   deals: Deal[]
   emails: Email[]
   totalCharges: number
-  getLineItemsByProject: (projectId: string) => LineItem[]
 }) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1449,7 +1188,7 @@ function ContactDetailView({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Zip Code:</span>
-                  <span>{contact.zip_code}</span>
+                  <span>{contact.zipCode}</span>
                 </div>
               </div>
             </div>
@@ -1479,21 +1218,17 @@ function ContactDetailView({
           <div>
             <h3 className="font-semibold mb-3">Projects</h3>
             <div className="space-y-2">
-              {projects.map(project => {
-                const items = getLineItemsByProject(project.id)
-                const total = items.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
-                return (
-                  <div key={project.id} className="p-3 border rounded-lg flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">{project.name}</p>
-                      <p className="text-sm text-gray-500">{project.status}</p>
-                    </div>
-                    <span className="font-bold text-green-600">
-                      ${total.toLocaleString()}
-                    </span>
+              {projects.map(project => (
+                <div key={project.id} className="p-3 border rounded-lg flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">{project.name}</p>
+                    <p className="text-sm text-gray-500">{project.status}</p>
                   </div>
-                )
-              })}
+                  <span className="font-bold text-green-600">
+                    ${project.charges.reduce((sum, item) => sum + (item.quantity * item.rate), 0).toLocaleString()}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1504,7 +1239,7 @@ function ContactDetailView({
                 <div key={email.id} className="p-3 border rounded-lg">
                   <div className="flex items-center justify-between mb-1">
                     <p className="font-medium text-sm">{email.subject}</p>
-                    <span className="text-xs text-gray-500">{new Date(email.sent_at).toLocaleDateString()}</span>
+                    <span className="text-xs text-gray-500">{new Date(email.sentAt).toLocaleDateString()}</span>
                   </div>
                   <p className="text-sm text-gray-600 line-clamp-2">{email.body}</p>
                 </div>
@@ -1535,7 +1270,7 @@ function ContactModal({
   onClose
 }: {
   contact: Contact | null
-  onSave: (contact: Omit<Contact, 'id' | 'created_at'>) => void
+  onSave: (contact: Omit<Contact, 'id' | 'createdAt'>) => void
   onClose: () => void
 }) {
   const [formData, setFormData] = useState({
@@ -1545,7 +1280,7 @@ function ContactModal({
     address: contact?.address || '',
     city: contact?.city || '',
     state: contact?.state || '',
-    zip_code: contact?.zip_code || ''
+    zipCode: contact?.zipCode || ''
   })
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -1615,11 +1350,11 @@ function ContactModal({
                 />
               </div>
               <div>
-                <Label htmlFor="zip_code">Zip Code</Label>
+                <Label htmlFor="zipCode">Zip Code</Label>
                 <Input
-                  id="zip_code"
-                  value={formData.zip_code}
-                  onChange={(e) => setFormData({ ...formData, zip_code: e.target.value })}
+                  id="zipCode"
+                  value={formData.zipCode}
+                  onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
                 />
               </div>
             </div>
@@ -1643,15 +1378,15 @@ function DealModal({
 }: {
   deal: Deal | null
   contacts: Contact[]
-  onSave: (deal: Omit<Deal, 'id' | 'created_at' | 'days_in_stage'>) => void
+  onSave: (deal: Omit<Deal, 'id' | 'createdAt' | 'daysInStage'>) => void
   onClose: () => void
 }) {
   const [formData, setFormData] = useState({
     name: deal?.name || '',
-    contact_id: deal?.contact_id || '',
+    contactId: deal?.contactId || '',
     value: deal?.value || 0,
     stage: deal?.stage || 'Lead',
-    expected_close_date: deal?.expected_close_date || '',
+    expectedCloseDate: deal?.expectedCloseDate || '',
     notes: deal?.notes || ''
   })
 
@@ -1681,7 +1416,7 @@ function DealModal({
             </div>
             <div>
               <Label htmlFor="contact">Contact *</Label>
-              <Select value={formData.contact_id} onValueChange={(value) => setFormData({ ...formData, contact_id: value })}>
+              <Select value={formData.contactId} onValueChange={(value) => setFormData({ ...formData, contactId: value })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a contact" />
                 </SelectTrigger>
@@ -1718,12 +1453,12 @@ function DealModal({
               </div>
             </div>
             <div>
-              <Label htmlFor="expected_close_date">Expected Close Date</Label>
+              <Label htmlFor="expectedCloseDate">Expected Close Date</Label>
               <Input
-                id="expected_close_date"
+                id="expectedCloseDate"
                 type="date"
-                value={formData.expected_close_date}
-                onChange={(e) => setFormData({ ...formData, expected_close_date: e.target.value })}
+                value={formData.expectedCloseDate}
+                onChange={(e) => setFormData({ ...formData, expectedCloseDate: e.target.value })}
               />
             </div>
             <div>
@@ -1750,50 +1485,48 @@ function DealModal({
 function ProjectModal({
   project,
   contacts,
-  lineItems,
   onSave,
   onClose
 }: {
   project: Project | null
   contacts: Contact[]
-  lineItems: LineItem[]
-  onSave: (project: Omit<Project, 'id'>, charges: Omit<LineItem, 'id' | 'project_id'>[]) => void
+  onSave: (project: Omit<Project, 'id'>) => void
   onClose: () => void
 }) {
   const [formData, setFormData] = useState({
     name: project?.name || '',
-    contact_id: project?.contact_id || '',
+    contactId: project?.contactId || '',
     status: project?.status || 'Not Started',
-    start_date: project?.start_date || '',
-    due_date: project?.due_date || '',
-    notes: project?.notes || ''
+    startDate: project?.startDate || '',
+    dueDate: project?.dueDate || '',
+    notes: project?.notes || '',
+    charges: project?.charges || []
   })
-
-  const [charges, setCharges] = useState<Omit<LineItem, 'id' | 'project_id'>[]>(
-    lineItems.map(item => ({
-      description: item.description,
-      quantity: item.quantity,
-      rate: item.rate
-    }))
-  )
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSave(formData, charges)
+    onSave(formData)
   }
 
   const addLineItem = () => {
-    setCharges([...charges, { description: '', quantity: 1, rate: 0 }])
+    setFormData({
+      ...formData,
+      charges: [...formData.charges, { id: Date.now().toString(), description: '', quantity: 1, rate: 0 }]
+    })
   }
 
-  const updateLineItem = (index: number, updates: Partial<Omit<LineItem, 'id' | 'project_id'>>) => {
-    const newCharges = [...charges]
-    newCharges[index] = { ...newCharges[index], ...updates }
-    setCharges(newCharges)
+  const updateLineItem = (id: string, updates: Partial<LineItem>) => {
+    setFormData({
+      ...formData,
+      charges: formData.charges.map(item => item.id === id ? { ...item, ...updates } : item)
+    })
   }
 
-  const removeLineItem = (index: number) => {
-    setCharges(charges.filter((_, i) => i !== index))
+  const removeLineItem = (id: string) => {
+    setFormData({
+      ...formData,
+      charges: formData.charges.filter(item => item.id !== id)
+    })
   }
 
   const projectStatuses = ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled']
@@ -1817,7 +1550,7 @@ function ProjectModal({
             </div>
             <div>
               <Label htmlFor="projectContact">Contact *</Label>
-              <Select value={formData.contact_id} onValueChange={(value) => setFormData({ ...formData, contact_id: value })}>
+              <Select value={formData.contactId} onValueChange={(value) => setFormData({ ...formData, contactId: value })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a contact" />
                 </SelectTrigger>
@@ -1843,21 +1576,21 @@ function ProjectModal({
                 </Select>
               </div>
               <div>
-                <Label htmlFor="start_date">Start Date</Label>
+                <Label htmlFor="startDate">Start Date</Label>
                 <Input
-                  id="start_date"
+                  id="startDate"
                   type="date"
-                  value={formData.start_date}
-                  onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                  value={formData.startDate}
+                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
                 />
               </div>
               <div>
-                <Label htmlFor="due_date">Due Date</Label>
+                <Label htmlFor="dueDate">Due Date</Label>
                 <Input
-                  id="due_date"
+                  id="dueDate"
                   type="date"
-                  value={formData.due_date}
-                  onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
+                  value={formData.dueDate}
+                  onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
                 />
               </div>
             </div>
@@ -1879,26 +1612,26 @@ function ProjectModal({
                 </Button>
               </div>
               <div className="space-y-2">
-                {charges.map((item, index) => (
-                  <div key={index} className="grid grid-cols-12 gap-2 items-center">
+                {formData.charges.map(item => (
+                  <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
                     <Input
                       placeholder="Description"
                       value={item.description}
-                      onChange={(e) => updateLineItem(index, { description: e.target.value })}
+                      onChange={(e) => updateLineItem(item.id, { description: e.target.value })}
                       className="col-span-5"
                     />
                     <Input
                       type="number"
                       placeholder="Qty"
                       value={item.quantity}
-                      onChange={(e) => updateLineItem(index, { quantity: parseFloat(e.target.value) })}
+                      onChange={(e) => updateLineItem(item.id, { quantity: parseFloat(e.target.value) })}
                       className="col-span-2"
                     />
                     <Input
                       type="number"
                       placeholder="Rate"
                       value={item.rate}
-                      onChange={(e) => updateLineItem(index, { rate: parseFloat(e.target.value) })}
+                      onChange={(e) => updateLineItem(item.id, { rate: parseFloat(e.target.value) })}
                       className="col-span-2"
                     />
                     <div className="col-span-2 font-medium">
@@ -1908,16 +1641,16 @@ function ProjectModal({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => removeLineItem(index)}
+                      onClick={() => removeLineItem(item.id)}
                       className="col-span-1"
                     >
                       <Trash className="h-4 w-4 text-red-600" />
                     </Button>
                   </div>
                 ))}
-                {charges.length > 0 && (
+                {formData.charges.length > 0 && (
                   <div className="flex justify-end font-bold text-lg pt-2 border-t">
-                    Total: ${charges.reduce((sum, item) => sum + (item.quantity * item.rate), 0).toFixed(2)}
+                    Total: ${formData.charges.reduce((sum, item) => sum + (item.quantity * item.rate), 0).toFixed(2)}
                   </div>
                 )}
               </div>
@@ -1940,7 +1673,7 @@ function EmailModal({
   onClose
 }: {
   contact: Contact
-  onSend: (email: Omit<Email, 'id' | 'sent_at'>) => void
+  onSend: (email: Omit<Email, 'id' | 'sentAt'>) => void
   onClose: () => void
 }) {
   const [formData, setFormData] = useState({
@@ -1957,7 +1690,7 @@ function EmailModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onSend({
-      contact_id: contact.id,
+      contactId: contact.id,
       subject: formData.subject,
       body: formData.body
     })
@@ -2044,11 +1777,11 @@ function TaskModal({
 }) {
   const [formData, setFormData] = useState({
     name: '',
-    due_date: '',
+    dueDate: '',
     priority: 'Medium',
     status: 'To Do',
-    linked_to: 'Contact',
-    linked_id: ''
+    linkedTo: 'Contact',
+    linkedId: ''
   })
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -2057,11 +1790,10 @@ function TaskModal({
   }
 
   const taskPriorities = ['Low', 'Medium', 'High', 'Urgent']
-  const taskStatuses = ['To Do', 'In Progress', 'Completed']
   const linkTypes = ['Contact', 'Deal', 'Project']
 
   const getLinkedItems = () => {
-    switch (formData.linked_to) {
+    switch (formData.linkedTo) {
       case 'Contact':
         return contacts
       case 'Deal':
@@ -2092,12 +1824,12 @@ function TaskModal({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="due_date">Due Date *</Label>
+                <Label htmlFor="dueDate">Due Date *</Label>
                 <Input
-                  id="due_date"
+                  id="dueDate"
                   type="date"
-                  value={formData.due_date}
-                  onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
+                  value={formData.dueDate}
+                  onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
                   required
                 />
               </div>
@@ -2117,8 +1849,8 @@ function TaskModal({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="linked_to">Link To *</Label>
-                <Select value={formData.linked_to} onValueChange={(value) => setFormData({ ...formData, linked_to: value, linked_id: '' })}>
+                <Label htmlFor="linkedTo">Link To *</Label>
+                <Select value={formData.linkedTo} onValueChange={(value) => setFormData({ ...formData, linkedTo: value, linkedId: '' })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -2130,8 +1862,8 @@ function TaskModal({
                 </Select>
               </div>
               <div>
-                <Label htmlFor="linked_id">Select Item *</Label>
-                <Select value={formData.linked_id} onValueChange={(value) => setFormData({ ...formData, linked_id: value })}>
+                <Label htmlFor="linkedId">Select Item *</Label>
+                <Select value={formData.linkedId} onValueChange={(value) => setFormData({ ...formData, linkedId: value })}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select an item" />
                   </SelectTrigger>
@@ -2240,5 +1972,3 @@ function AutomationModal({
     </div>
   )
 }
-
-// END OF FILE
