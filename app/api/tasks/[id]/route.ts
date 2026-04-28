@@ -3,12 +3,12 @@ import { sql } from '@vercel/postgres';
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const { status } = body;
-    const id = params.id;
 
     const { rows } = await sql`
       UPDATE tasks
@@ -26,10 +26,10 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+    const { id } = await params;
     await sql`DELETE FROM tasks WHERE id = ${id}`;
     return NextResponse.json({ success: true });
   } catch (error) {
